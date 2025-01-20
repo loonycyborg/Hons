@@ -12,6 +12,7 @@ Haskell ecosystem, either from your distro or GHCup
 
 RUNNING
 -------
-cabal run hons
+`cabal run hons`
+
 this will run example script in app/Main.hs
-this will generate graph.dot file with DAG the build would have
+which will in turn generate graph.dot file with DAG the build would have
