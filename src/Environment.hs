@@ -30,7 +30,7 @@ import Language.Haskell.TH (Extension(RankNTypes))
 type EnvProto :: [Type] -> Type
 data EnvProto xs where
   EnvNihil :: EnvProto '[]
-  (:+:)    :: (x ~ Tagged (a :: Symbol) b, KnownSymbol a, Typeable b, Mergeable b, Eq b, Show b) => x -> EnvProto xs -> EnvProto (x : xs)
+  (:+:)    :: (x ~ Tagged (a :: Symbol) b, KnownSymbol a, ConstructionVariable b) => x -> EnvProto xs -> EnvProto (x : xs)
 infixr 5 :+:
 
 envVar :: forall (s :: Symbol) a . KnownSymbol s => a -> Tagged s a
@@ -44,7 +44,7 @@ type family LookupType s a where
 
 type ProtoMap = HM.HashMap String Dynamic
 
-eProtoMap :: (forall t . (Typeable t, Mergeable t, Show t) => t -> Dynamic) -> EnvProto vars -> ProtoMap
+eProtoMap :: (forall t . (ConstructionVariable t) => t -> Dynamic) -> EnvProto vars -> ProtoMap
 eProtoMap _ EnvNihil = HM.empty
 eProtoMap m (x :+: next) = HM.insert eName eValue (eProtoMap m next) where
   eTerm (Tagged v :: Tagged s tv) = (symbolVal (Proxy @s), m v)
@@ -62,7 +62,7 @@ instance Show (Environment vars) where
 makeEnv :: EnvProto vars -> Environment vars
 makeEnv proto = Environment proto (eProtoMap toDyn proto) HM.empty
 
-eLookup :: forall (s :: Symbol) {vars} {a} . (Typeable a, KnownSymbol s, a ~ LookupType s vars) => Environment vars -> a
+eLookup :: forall (s :: Symbol) {vars} {a} . (ConstructionVariable a, KnownSymbol s, a ~ LookupType s vars) => Environment vars -> a
 eLookup env =
   let
     var = symbolVal (Proxy @s)
@@ -71,7 +71,7 @@ eLookup env =
   in
     fromJust $ fromDynamic value
 
-eUpdate :: forall (s :: Symbol) {vars} {a} . (Typeable a, Eq a, KnownSymbol s, a ~ LookupType s vars) => (a -> Maybe a) -> Environment vars -> Environment vars
+eUpdate :: forall (s :: Symbol) {vars} {a} . (ConstructionVariable a, KnownSymbol s, a ~ LookupType s vars) => (a -> Maybe a) -> Environment vars -> Environment vars
 eUpdate f env =
   let
     var = symbolVal (Proxy @s)
@@ -85,22 +85,22 @@ eUpdate f env =
   in
     Environment env.prototype env.defaults (HM.alter alter var env.overrides)
 
-eReplace :: forall (s :: Symbol) {vars} {v} . (Typeable v, Eq v, KnownSymbol s,  v ~ LookupType s vars) => v -> Environment vars -> Environment vars
+eReplace :: forall (s :: Symbol) {vars} {v} . (ConstructionVariable v, KnownSymbol s,  v ~ LookupType s vars) => v -> Environment vars -> Environment vars
 eReplace v = eUpdate @s (\_-> Just v)
 
-class Mergeable a where
+class (Eq a, Typeable a, Show a) => ConstructionVariable a where
   merge :: a -> a -> a
 exclusiveMerge :: Eq a => a -> a -> a
 exclusiveMerge a b = if a == b then a else error "conflicting variable values"
-instance Mergeable Bool where
+instance ConstructionVariable Bool where
   merge = exclusiveMerge
-instance Mergeable Int where
+instance ConstructionVariable Int where
   merge = exclusiveMerge
-instance Mergeable String where
+instance ConstructionVariable String where
   merge = exclusiveMerge
-instance Mergeable a => Mergeable (Maybe a) where
+instance ConstructionVariable a => ConstructionVariable (Maybe a) where
   merge = liftM2 merge
-instance Mergeable [String] where
+instance ConstructionVariable [String] where
   merge = (++)
 
 eMerge :: Environment vars -> Environment vars -> Environment vars
