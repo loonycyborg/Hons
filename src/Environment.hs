@@ -17,6 +17,7 @@
 module Environment where
 import qualified Data.HashMap.Strict as HM
 import Data.List
+import Data.Text.Short as TS
 import Data.Maybe
 import Data.Dynamic
 import Data.Kind
@@ -26,6 +27,7 @@ import qualified Control.Monad.Trans.State.Strict as State
 import GHC.TypeLits
 import GHC.Base (liftM2)
 import Language.Haskell.TH (Extension(RankNTypes))
+import qualified Data.Text.Short as TS
 
 type EnvProto :: [Type] -> Type
 data EnvProto xs where
@@ -42,12 +44,15 @@ type family LookupType s a where
   LookupType s (x ': xs) = LookupType s xs
   LookupType s '[] = TypeError (Text "Unknown environment variable " :<>: ShowType s)
 
-type ProtoMap = HM.HashMap String Dynamic
+type ProtoMap = HM.HashMap TS.ShortText Dynamic
+
+tsSymbol :: forall (s :: Symbol) . KnownSymbol s => TS.ShortText
+tsSymbol = pack $ symbolVal (Proxy @s)
 
 eProtoMap :: (forall t . (ConstructionVariable t) => t -> Dynamic) -> EnvProto vars -> ProtoMap
 eProtoMap _ EnvNihil = HM.empty
 eProtoMap m (x :+: next) = HM.insert eName eValue (eProtoMap m next) where
-  eTerm (Tagged v :: Tagged s tv) = (symbolVal (Proxy @s), m v)
+  eTerm (Tagged v :: Tagged s tv) = (tsSymbol @s, m v)
   (eName, eValue) = eTerm x
 
 data Environment vars where
@@ -55,7 +60,7 @@ data Environment vars where
 
 instance Show (Environment vars) where
   show env = if HM.null env.overrides then "{}" else "{" ++ foldr1 (\x y -> x ++ ", " ++ y) (HM.mapWithKey stringify env.overrides) ++ "}" where
-    stringify k v = k ++ ": " ++ (fromJust . fromDynamic @String) (dynApp (dyn_show k) v)
+    stringify k v = unpack k ++ ": " ++ (fromJust . fromDynamic @String) (dynApp (dyn_show k) v)
     dyn_show k = proto_show HM.! k
     proto_show = eProtoMap (\(x :: t) -> toDyn (show @t)) env.prototype
 
@@ -65,7 +70,7 @@ makeEnv proto = Environment proto (eProtoMap toDyn proto) HM.empty
 eLookup :: forall (s :: Symbol) {vars} {a} . (ConstructionVariable a, KnownSymbol s, a ~ LookupType s vars) => Environment vars -> a
 eLookup env =
   let
-    var = symbolVal (Proxy @s)
+    var = tsSymbol @s
     override = HM.lookup var env.overrides
     value = fromMaybe (fromJust $ HM.lookup var env.defaults) override
   in
@@ -74,7 +79,7 @@ eLookup env =
 eUpdate :: forall (s :: Symbol) {vars} {a} . (ConstructionVariable a, KnownSymbol s, a ~ LookupType s vars) => (a -> Maybe a) -> Environment vars -> Environment vars
 eUpdate f env =
   let
-    var = symbolVal (Proxy @s)
+    var = tsSymbol @s
     override = HM.lookup var env.overrides
     def = env.defaults HM.! var
     alter_internal (def::a) (v::a) =

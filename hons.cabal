@@ -18,6 +18,7 @@ library
                     , algebraic-graphs >= 0.7
                     , containers
                     , unordered-containers
+                    , text-short
                     , transformers
                     , hashable
                     , tagged
