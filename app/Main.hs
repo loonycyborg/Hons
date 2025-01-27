@@ -1,13 +1,13 @@
-{-# LANGUAGE OverloadedRecordDot, QuasiQuotes, DataKinds, TypeApplications #-}
+{-# LANGUAGE OverloadedRecordDot, QuasiQuotes, DataKinds, TypeApplications, BlockArguments #-}
 module Main where
 
 import qualified Hons (someFunc)
-import qualified Rule
 import qualified DepGraph
 import qualified Environment
 import qualified Taskmaster
 import Environment
 import Node (filelist, mkFsNode, mkPropagator)
+import Builder
 
 import Algebra.Graph.Export.Dot
 import GHC.IO (unsafePerformIO)
@@ -29,29 +29,25 @@ env = makeEnv envp
 targets = [filelist|prog|]
 sources = [filelist|src1.c src2.c|]
 objects = [filelist|src1.o src2.o|]
-p = Rule.Rule targets objects (return True)
-r = Rule.RuleChain p (zipWith mkO objects sources)
+p = command targets objects (return True)
+r = p : zipWith mkO objects sources
 
 -- Propagator nodes modify environment associated with them
 -- In Hons each node has own environment associated with it
 -- that is calculated by merging the node's source environments
 -- therefore all environment overrides such as those introduced
 -- by propagator will carry over upstream
-propagator1 = mkPropagator "test1" env (do
-  State.modify $ eReplace @"c.flags" ["-funroll-loops"]
-  )
-propagator2 = mkPropagator "test2" env (do
-  State.modify $ eReplace @"c.flags" ["-Ofast"]
-  )
 
-prule = [
-          Rule.Depends (head sources) propagator1,
-          Rule.Depends (last sources) propagator2
-        ]
-cyc = Rule.Rule sources targets (return True)
+prule =
+  propagate "test1" env [head sources] do
+    State.modify $ eReplace @"c.flags" ["-funroll-loops"]
+  ++
+  propagate "test2" env [last sources] do
+    State.modify $ eReplace @"c.flags" ["-Ofast"]
+cyc = command sources targets (return True)
 
-mkO o c = Rule.Rule [o] [c] (return True)
-(g, t) = DepGraph.applyRules $ r : prule
+mkO o c = command [o] [c] (return True)
+(g, t) = DepGraph.applyRules $ r ++ prule
 
 order = DepGraph.buildOrder (g, t) (head targets)
 
