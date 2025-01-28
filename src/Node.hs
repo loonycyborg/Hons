@@ -24,8 +24,10 @@ instance Eq Node where
 instance Ord Node where
     FsNode p1 `compare` FsNode p2 = p1 `compare` p2
     ValueNode n1 _ _ `compare` ValueNode n2 _ _ = n1 `compare` n2
-    FsNode _ `compare` ValueNode {} = LT
-    ValueNode {} `compare` FsNode _ = GT
+    x `compare` y = prio x `compare` prio y where
+        prio (ValueNode {}) = 1
+        prio (FsNode {}) = 0
+
 instance Lift Node where
     lift (FsNode p) = [| FsNode p |]
     lift (ValueNode n v _) = [| ValueNode n v EIdentity |]
