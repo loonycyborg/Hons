@@ -10,7 +10,7 @@ maintainer:         loonycyborg@gmail.com
 category:           Development
 
 library
-    exposed-modules:  Hons, Node, Rule, DepGraph, Taskmaster, Environment, Builder
+    exposed-modules:  Hons, Node, DepGraph, Taskmaster, Environment, Builder
     build-depends:    base
                     , filepath >= 1.5.0.0
                     , directory

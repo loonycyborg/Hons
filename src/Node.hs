@@ -1,8 +1,10 @@
-{-# LANGUAGE GADTs, ExistentialQuantification, TemplateHaskellQuotes #-}
+{-# LANGUAGE GADTs, ExistentialQuantification, TemplateHaskellQuotes, TypeFamilies, FlexibleInstances #-}
 
 module Node where
 import System.OsPath
 import System.Directory.OsPath
+import Algebra.Graph.ToGraph ( ToGraph(ToVertex, toGraph) )
+import Algebra.Graph
 import GHC.IO (unsafePerformIO)
 import Data.Hashable ( Hashable(hashWithSalt) )
 import Language.Haskell.TH.Quote ( QuasiQuoter(..) )
@@ -41,6 +43,14 @@ instance Hashable Node where
 instance Show Node where
     show (FsNode path) = "[fs|" ++ (unsafePerformIO . decodeFS $ path) ++ "|]"
     show (ValueNode name value _) = "[value|" ++ value ++ "|]"
+
+instance ToGraph Node where
+    type ToVertex Node = Node
+    toGraph = Vertex
+
+instance ToGraph [Node] where
+    type ToVertex [Node] = Node
+    toGraph nodes = overlays (map Vertex nodes)
 
 {-# NOINLINE baseDir #-}
 baseDir :: OsPath

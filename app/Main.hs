@@ -30,7 +30,7 @@ targets = [filelist|prog|]
 sources = [filelist|src1.c src2.c|]
 objects = [filelist|src1.o src2.o|]
 p = command targets objects (return True)
-r = p : zipWith mkO objects sources
+r = p <> mconcat (zipWith mkO objects sources)
 
 -- Propagator nodes modify environment associated with them
 -- In Hons each node has own environment associated with it
@@ -41,19 +41,22 @@ r = p : zipWith mkO objects sources
 prule =
   propagate "test1" env [head sources] do
     State.modify $ eReplace @"c.flags" ["-funroll-loops"]
-  ++
+  <>
   propagate "test2" env [last sources] do
     State.modify $ eReplace @"c.flags" ["-Ofast"]
 cyc = command sources targets (return True)
 
-mkO o c = command [o] [c] (return True)
-(g, t) = DepGraph.applyRules $ r ++ prule
+mkO o c = command o c (return True)
 
-order = DepGraph.buildOrder (g, t) (head targets)
+rules = r <> prule
+g = rules.graph
+t = rules.tasks
+
+order = DepGraph.buildOrder rules (head targets)
 
 main :: IO ()
 main = do
   writeFile "graph.dot" (exportViaShow g)
-  print order
   print t
+  print order
   print (map (Taskmaster.taskContext g t env) (mapMaybe snd order))
