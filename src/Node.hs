@@ -62,7 +62,7 @@ mkAlias a = ValueNode a "" EDropOverrides
 mkValue :: String -> Node 
 mkValue name = ValueNode name name EIdentity
 mkPropagator :: Typeable vars => String -> Environment vars -> State.State (Environment vars) () -> Node
-mkPropagator name env st = ValueNode name name (Environment.mkStateTransform st) 
+mkPropagator name env st = ValueNode name name (Environment.EStateTransform st) 
 
 filelist :: QuasiQuoter
 filelist = QuasiQuoter {

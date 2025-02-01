@@ -11,7 +11,8 @@
   FlexibleInstances,
   OverloadedRecordDot,
   AllowAmbiguousTypes,
-  RankNTypes
+  RankNTypes,
+  FlexibleContexts
 #-}
 
 module Environment where
@@ -19,7 +20,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.List
 import Data.Text.Short as TS
 import Data.Maybe
-import Data.Dynamic
 import Data.Type.Equality
 import Type.Reflection
 import Data.Kind
@@ -28,7 +28,7 @@ import Data.Proxy
 import qualified Control.Monad.Trans.State.Strict as State
 import GHC.TypeLits
 import GHC.Base (liftM2)
-import Language.Haskell.TH (Extension(RankNTypes))
+import Language.Haskell.TH (Extension(RankNTypes, FlexibleContexts))
 import qualified Data.Text.Short as TS
 
 type EnvProto :: [Type] -> Type
@@ -121,7 +121,7 @@ eMerge env1 env2 = Environment env1.prototype env1.defaults $ HM.unionWithKey do
   doMerge k = mergeVarHolder
 
 class EnvTransform a where
-  eTransform :: Typeable vars => a -> Environment vars -> Environment vars
+  eTransform :: Typeable (Environment vars) => a -> Environment vars -> Environment vars
 
 data EIdentity = EIdentity deriving Show
 instance EnvTransform EIdentity where
@@ -134,12 +134,8 @@ data EDropOverrides = EDropOverrides
 instance EnvTransform EDropOverrides where
   eTransform x = eDropOverrides
 
-newtype EStateTransform = EStateTransform Dynamic
-mkStateTransform :: Typeable vars => State.State (Environment vars) () -> EStateTransform
-mkStateTransform st = EStateTransform (toDyn (execST st)) where
-  execST = State.execState
+type ETransformer env = State.State env ()
+data EStateTransform = forall vars a . (Typeable (Environment vars), a ~ ETransformer (Environment vars)) => EStateTransform a
+
 instance EnvTransform EStateTransform where
-  eTransform (EStateTransform dyn) env =
-    fromMaybe
-      (error "Incompatible environments")
-      (fromDynamic (dynApp dyn (toDyn env)))
+  eTransform (EStateTransform (st :: ETransformer env1)) (env :: env2) = case testEquality (TypeRep @env1) (TypeRep @env2) of Just Refl -> State.execState st env
