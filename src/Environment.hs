@@ -20,6 +20,8 @@ import Data.List
 import Data.Text.Short as TS
 import Data.Maybe
 import Data.Dynamic
+import Data.Type.Equality
+import Type.Reflection
 import Data.Kind
 import Data.Tagged
 import Data.Proxy
@@ -44,12 +46,21 @@ type family LookupType s a where
   LookupType s (x ': xs) = LookupType s xs
   LookupType s '[] = TypeError (Text "Unknown environment variable " :<>: ShowType s)
 
-type ProtoMap = HM.HashMap TS.ShortText Dynamic
+data VarHolder = forall a . ConstructionVariable a => VarHolder a
+instance Show VarHolder where
+  show (VarHolder x) = show x
+type ProtoMap = HM.HashMap TS.ShortText VarHolder
+
+castVarHolder :: forall a . ConstructionVariable a => VarHolder -> a
+castVarHolder (VarHolder x :: b) = case testEquality (typeOf x) (TypeRep @a) of Just Refl -> x
+
+mergeVarHolder :: VarHolder -> VarHolder -> VarHolder
+mergeVarHolder (VarHolder x) (VarHolder y) = case testEquality (typeOf x) (typeOf y) of Just Refl -> VarHolder $ merge x y
 
 tsSymbol :: forall (s :: Symbol) . KnownSymbol s => TS.ShortText
 tsSymbol = pack $ symbolVal (Proxy @s)
 
-eProtoMap :: (forall t . (ConstructionVariable t) => t -> Dynamic) -> EnvProto vars -> ProtoMap
+eProtoMap :: (forall t . (ConstructionVariable t) => t -> VarHolder) -> EnvProto vars -> ProtoMap
 eProtoMap _ EnvNihil = HM.empty
 eProtoMap m (x :+: next) = HM.insert eName eValue (eProtoMap m next) where
   eTerm (Tagged v :: Tagged s tv) = (tsSymbol @s, m v)
@@ -60,12 +71,10 @@ data Environment vars where
 
 instance Show (Environment vars) where
   show env = if HM.null env.overrides then "{}" else "{" ++ foldr1 (\x y -> x ++ ", " ++ y) (HM.mapWithKey stringify env.overrides) ++ "}" where
-    stringify k v = unpack k ++ ": " ++ (fromJust . fromDynamic @String) (dynApp (dyn_show k) v)
-    dyn_show k = proto_show HM.! k
-    proto_show = eProtoMap (\(x :: t) -> toDyn (show @t)) env.prototype
+    stringify k v = unpack k ++ ": " ++ show v
 
 makeEnv :: EnvProto vars -> Environment vars
-makeEnv proto = Environment proto (eProtoMap toDyn proto) HM.empty
+makeEnv proto = Environment proto (eProtoMap VarHolder proto) HM.empty
 
 eLookup :: forall (s :: Symbol) {vars} {a} . (ConstructionVariable a, KnownSymbol s, a ~ LookupType s vars) => Environment vars -> a
 eLookup env =
@@ -74,21 +83,20 @@ eLookup env =
     override = HM.lookup var env.overrides
     value = fromMaybe (fromJust $ HM.lookup var env.defaults) override
   in
-    fromJust $ fromDynamic value
+    castVarHolder value
 
 eUpdate :: forall (s :: Symbol) {vars} {a} . (ConstructionVariable a, KnownSymbol s, a ~ LookupType s vars) => (a -> Maybe a) -> Environment vars -> Environment vars
 eUpdate f env =
   let
     var = tsSymbol @s
-    override = HM.lookup var env.overrides
-    def = env.defaults HM.! var
-    alter_internal (def::a) (v::a) =
-      let val = fromMaybe def (f v)
+    def = castVarHolder @a $ env.defaults HM.! var
+    alter v =
+      let prev_val = maybe def (castVarHolder @a) v
+          val = fromMaybe def (f prev_val)
       in
-        if val == def then Nothing else Just val
-    alter dv = fmap toDyn ((fromJust . fromDynamic @(Maybe a)) (dynApp (dynApp (toDyn alter_internal) def) (fromMaybe def dv)))
-  in
-    Environment env.prototype env.defaults (HM.alter alter var env.overrides)
+        if val == def then Nothing else Just $ VarHolder val
+    in
+      Environment env.prototype env.defaults (HM.alter alter var env.overrides)
 
 eReplace :: forall (s :: Symbol) {vars} {v} . (ConstructionVariable v, KnownSymbol s,  v ~ LookupType s vars) => v -> Environment vars -> Environment vars
 eReplace v = eUpdate @s (\_-> Just v)
@@ -110,8 +118,7 @@ instance ConstructionVariable [String] where
 
 eMerge :: Environment vars -> Environment vars -> Environment vars
 eMerge env1 env2 = Environment env1.prototype env1.defaults $ HM.unionWithKey doMerge env1.overrides env2.overrides where
-  merger = eProtoMap (\(x :: t) -> toDyn (merge :: t->t->t)) env1.prototype
-  doMerge k = dynApp . dynApp (merger HM.! k)
+  doMerge k = mergeVarHolder
 
 class EnvTransform a where
   eTransform :: Typeable vars => a -> Environment vars -> Environment vars
