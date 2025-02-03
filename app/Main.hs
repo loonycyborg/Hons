@@ -18,6 +18,7 @@ envp =
   envVar @"jobs"    (0 :: Int)      :+:
   envVar @"c.flags" ([] ::[String]) :+:
   envVar @"c.cc"    "gcc"           :+:
+  envVar @"switch"  (Nothing :: Maybe Bool) :+:
   EnvNihil
 
 env = makeEnv envp
@@ -41,6 +42,7 @@ r = p <> mconcat (zipWith mkO objects sources)
 prule =
   propagate "test1" env [head sources] do
     State.modify $ eReplace @"c.flags" ["-funroll-loops"]
+    State.modify $ eReplace @"switch" (Just True)
   <>
   propagate "test2" env [last sources] do
     State.modify $ eReplace @"c.flags" ["-Ofast"]

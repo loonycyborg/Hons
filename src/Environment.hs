@@ -112,9 +112,12 @@ instance ConstructionVariable Int where
 instance ConstructionVariable String where
   merge = exclusiveMerge
 instance ConstructionVariable a => ConstructionVariable (Maybe a) where
-  merge = liftM2 merge
+  merge = (<>)
 instance ConstructionVariable [String] where
   merge = (++)
+
+instance {-# OVERLAPPABLE #-} ConstructionVariable a => Semigroup a where
+  (<>) = merge
 
 eMerge :: Environment vars -> Environment vars -> Environment vars
 eMerge env1 env2 = Environment env1.prototype env1.defaults $ HM.unionWithKey doMerge env1.overrides env2.overrides where
