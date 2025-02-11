@@ -9,6 +9,7 @@ import Algebra.Graph.AdjacencyMap
 
 import Node
 import Environment
+import Data.Maybe (mapMaybe)
 
 data Task where
     Task :: { targets :: [Node], sources :: [Node], action :: IO Bool } -> Task
@@ -43,4 +44,6 @@ nodeContext deps taskList env node =
     in
         transformWithNode node $ foldr eMerge env envs
 
---build taskList deps env = 
+build :: [(Node, Maybe Task)] -> IO ()
+build nodes = sequence_ tasks where
+    tasks = map (.action) $ mapMaybe snd nodes

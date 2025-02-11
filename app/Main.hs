@@ -30,7 +30,9 @@ env = makeEnv envp
 targets = [filelist|prog|]
 sources = [filelist|src1.c src2.c|]
 objects = [filelist|src1.o src2.o|]
-p = command targets objects (return True)
+p = command targets objects do
+  print "Pretending to build program"
+  return True
 r = p <> mconcat (zipWith mkO objects sources)
 
 -- Propagator nodes modify environment associated with them
@@ -48,7 +50,9 @@ prule =
     State.modify $ eReplace @"c.flags" ["-Ofast"]
 cyc = command sources targets (return True)
 
-mkO o c = command o c (return True)
+mkO o c = command o c do
+  print "Pretending to build object"
+  return True
 
 rules = r <> prule
 g = rules.graph
@@ -62,3 +66,4 @@ main = do
   print t
   print order
   print (map (Taskmaster.taskContext g t env) (mapMaybe snd order))
+  Taskmaster.build order
