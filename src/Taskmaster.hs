@@ -1,15 +1,18 @@
-{-# LANGUAGE GADTs, OverloadedRecordDot, InstanceSigs #-}
+{-# LANGUAGE GADTs, OverloadedRecordDot, InstanceSigs, FlexibleContexts #-}
 module Taskmaster where
 import qualified Data.HashSet as HS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as S
+import qualified Data.List.NonEmpty as L
+import Control.Monad.Trans.State.Strict
+import Control.Monad.IO.Class
 import Data.Typeable
 
 import Algebra.Graph.AdjacencyMap
 
 import Node
 import Environment
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromJust, isJust, isNothing)
 
 data Task where
     Task :: { targets :: [Node], sources :: [Node], action :: IO Bool } -> Task
@@ -21,29 +24,77 @@ instance Eq Task where
 instance Show Task where
     show (Task targets _ _) = "[[[" ++ (show . head $ targets) ++ "]]]"
 
+data TaskStatus = Pending | Done | Failed deriving (Eq, Show, Enum)
+
+data ExecutionContext vars where
+    ExecutionContext :: { target :: Node, env :: Maybe (Environment vars), task :: Maybe Task, status :: TaskStatus } -> ExecutionContext vars deriving Show
+
 transformWithNode :: Typeable vars => Node -> Environment vars -> Environment vars
 transformWithNode (ValueNode _ _ tr) = eTransform tr
 transformWithNode (FsNode _) = eTransform EIdentity
 
-taskContext :: Typeable vars => AdjacencyMap Node -> HM.HashMap Node Task -> Environment vars -> Task -> Environment vars
-taskContext deps taskList env task =
-    let
-        ts = HS.fromList task.targets
-        sourceSet = flip postSet deps
-        sources = foldr1 S.union $ HS.map sourceSet ts
-        envs = map (nodeContext deps taskList env) (S.toList sources)
-    in
-        foldr1 eMerge envs
+contextList deps env = L.map mkCtx where
+    mkCtx (node, Nothing) = ExecutionContext node (if isLeaf then Just (transformWithNode node env) else Nothing) Nothing (if isLeaf then Done else Pending) where
+        isLeaf = null $ postSet node deps
+    mkCtx (node, Just task) = ExecutionContext node Nothing (Just task) Pending
 
-nodeContext :: Typeable vars => AdjacencyMap Node -> HM.HashMap Node Task -> Environment vars -> Node -> Environment vars
-nodeContext deps taskList env node =
-    let
-        sources = postSet node deps
-        srcEnv src = maybe (nodeContext deps taskList env src) (taskContext deps taskList env) (HM.lookup src taskList)
-        envs = map srcEnv (S.toList sources)
-    in
-        transformWithNode node $ foldr eMerge env envs
+type Contexts vars = HM.HashMap Node (ExecutionContext vars)
+type ContextList vars = L.NonEmpty (ExecutionContext vars)
 
-build :: [(Node, Maybe Task)] -> IO ()
-build nodes = sequence_ tasks where
-    tasks = map (.action) $ mapMaybe snd nodes
+execute :: (Typeable vars) => AdjacencyMap Node -> ContextList vars -> StateT (Contexts vars) IO (ContextList vars)
+execute deps = mapM execute_context where
+    execute_context context@(ExecutionContext node env task status) = do
+        ctx <- get
+        case task of
+            Nothing -> 
+              let
+                source_ctx = fromJust $ lookup_ctx ctx [node]
+                failed = src_failed source_ctx
+                done = src_done source_ctx
+                new_status
+                 | status /= Pending = status
+                 | done      = Done
+                 | failed    = Failed
+                 | otherwise = Pending
+                new_env
+                 | isJust env = env
+                 | new_status == Done = Just $ source_env source_ctx
+                 | otherwise  = Nothing
+                new_context = ExecutionContext node new_env Nothing new_status
+              in do
+                modify $ HM.insert node new_context
+                return new_context
+            Just t ->
+              let
+                source_ctx_m = lookup_ctx ctx t.targets
+                incomplete_src = isNothing source_ctx_m
+                source_ctx = fromJust source_ctx_m
+                pre_failed = src_failed source_ctx
+                ready = src_done source_ctx
+                src_env = source_env source_ctx
+                new_env
+                 | isJust env = env
+                 | ready = Just src_env
+                 | otherwise = Nothing
+                new_status result
+                 | incomplete_src = Pending
+                 | status /= Pending = status
+                 | pre_failed = Failed
+                 | result = Done
+                 | otherwise = Failed
+                new_context result = ExecutionContext node new_env task (new_status result)
+              in do
+                result <- if not incomplete_src && status == Pending && ready then liftIO t.action else liftIO $ return False
+                modify $ HM.insert node $ new_context result
+                return $ new_context result
+        where
+            lookup_ctx ctx targets = sequence $ lookup_src ctx $ sources_t targets
+            lookup_src ctx = map (`HM.lookup` ctx) . S.toList
+            sources target = postSet target deps
+            sources_t targets = S.unions $ map sources targets
+            source_env src = transformWithNode node $ foldr1 eMerge $ mapMaybe ((.env)) src
+            src_failed src = Failed `elem` map (.status) src
+            src_done = all ((==Done) . (.status))
+
+build :: Typeable vars => AdjacencyMap Node -> Environment vars -> L.NonEmpty (Node, Maybe Task) -> IO (ContextList vars, Contexts vars)
+build deps env nodes = runStateT (execute deps $ contextList deps env nodes) HM.empty

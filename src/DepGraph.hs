@@ -7,6 +7,7 @@ import Algebra.Graph.AdjacencyMap
 import Algebra.Graph.AdjacencyMap.Algorithm (reachable, topSort)
 import qualified Data.Set as Set
 import qualified Data.HashMap.Strict as HM
+import qualified Data.List.NonEmpty as L
 
 type DepGraph = AdjacencyMap Node
 type TaskList = HM.HashMap Node Task
@@ -25,11 +26,11 @@ instance Semigroup RuleSet where
 instance Monoid RuleSet where
     mempty = RuleSet HM.empty empty
 
-buildOrder :: RuleSet -> Node -> [(Node, Maybe Task)]
+buildOrder :: RuleSet -> Node -> L.NonEmpty (Node, Maybe Task)
 buildOrder ruleset goal = order where
     componentVertices = Set.fromList (reachable ruleset.graph goal)
     component = induce (`Set.member` componentVertices) ruleset.graph
-    order = reverse $ case topSort component of
+    order = L.reverse $ case topSort component of
         Left cycle -> error ("Dependency cycle detected: " ++ show cycle)
-        Right l    -> map mkItem l
+        Right l    -> L.map mkItem (L.fromList l)
     mkItem n = (n, HM.lookup n ruleset.tasks)

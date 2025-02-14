@@ -65,5 +65,5 @@ main = do
   writeFile "graph.dot" (exportViaShow g)
   print t
   print order
-  print (map (Taskmaster.taskContext g t env) (mapMaybe snd order))
-  Taskmaster.build order
+  result <- Taskmaster.build g env order
+  print result
