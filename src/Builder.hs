@@ -8,9 +8,9 @@ import Taskmaster
 import qualified Algebra.Graph
 import Algebra.Graph.ToGraph (ToGraph (toAdjacencyMap, ToVertex, vertexList))
 
-depends :: (ToGraph a, ToVertex a ~ Node, ToGraph b, ToVertex b ~ Node) => a -> b -> RuleSet
+depends :: (ToGraph a, ToVertex a ~ Node, ToGraph b, ToVertex b ~ Node) => a -> b -> RuleSet vars
 depends target source = RuleSet HM.empty (connect (toAdjacencyMap target) (toAdjacencyMap source))
-command :: (ToGraph a, ToVertex a ~ Node, ToGraph b, ToVertex b ~ Node) => a -> b -> IO Bool -> RuleSet
+command :: (ToGraph a, ToVertex a ~ Node, ToGraph b, ToVertex b ~ Node) => a -> b -> Action vars -> RuleSet vars
 command target source action = RuleSet (HM.fromList $ map (, task) tlist) (connect tgraph sgraph) where
     tgraph = toAdjacencyMap target
     sgraph = toAdjacencyMap source

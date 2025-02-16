@@ -10,23 +10,23 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as L
 
 type DepGraph = AdjacencyMap Node
-type TaskList = HM.HashMap Node Task
+type TaskList vars = HM.HashMap Node (Task vars)
 
-data RuleSet where
-    RuleSet :: { tasks :: TaskList, graph :: DepGraph } -> RuleSet
+data RuleSet vars where
+    RuleSet :: { tasks :: TaskList vars, graph :: DepGraph } -> RuleSet vars
     deriving (Eq, Show)
 
-combine :: RuleSet -> RuleSet -> RuleSet
+combine :: RuleSet vars -> RuleSet vars -> RuleSet vars
 combine r1 r2 = RuleSet (HM.unionWithKey handleDuplicates r1.tasks r2.tasks) (overlay r1.graph r2.graph) where
     handleDuplicates k t1 t2 = error $ "Multiple ways to build node " ++ show k ++ "specified"
 
-instance Semigroup RuleSet where
+instance Semigroup (RuleSet vars) where
     (<>) = combine
 
-instance Monoid RuleSet where
+instance Monoid (RuleSet vars) where
     mempty = RuleSet HM.empty empty
 
-buildOrder :: RuleSet -> Node -> L.NonEmpty (Node, Maybe Task)
+buildOrder :: RuleSet vars -> Node -> L.NonEmpty (Node, Maybe (Task vars))
 buildOrder ruleset goal = order where
     componentVertices = Set.fromList (reachable ruleset.graph goal)
     component = induce (`Set.member` componentVertices) ruleset.graph

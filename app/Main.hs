@@ -10,9 +10,7 @@ import Node (filelist, mkFsNode, mkPropagator)
 import Builder
 
 import Algebra.Graph.Export.Dot
-import GHC.IO (unsafePerformIO)
 import qualified Control.Monad.Trans.State.Strict as State
-import Data.Maybe
 
 envp =
   envVar @"jobs"    (0 :: Int)      :+:
@@ -31,7 +29,8 @@ targets = [filelist|prog|]
 sources = [filelist|src1.c src2.c|]
 objects = [filelist|src1.o src2.o|]
 p = command targets objects do
-  print "Pretending to build program"
+  task <- Taskmaster.gett
+  Taskmaster.liftIO $ print ("Pretending to build program: " ++ show task.targets ++ " -> " ++ show task.sources)
   return True
 r = p <> mconcat (zipWith mkO objects sources)
 
@@ -51,7 +50,8 @@ prule =
 cyc = command sources targets (return True)
 
 mkO o c = command o c do
-  print "Pretending to build object"
+  task <- Taskmaster.gett
+  Taskmaster.liftIO $ print ("Pretending to build object: " ++ show task.targets ++ " -> " ++ show task.sources)
   return True
 
 rules = r <> prule

@@ -1,33 +1,50 @@
 {-# LANGUAGE GADTs, OverloadedRecordDot, InstanceSigs, FlexibleContexts #-}
-module Taskmaster where
+module Taskmaster (module Taskmaster, liftIO) where
 import qualified Data.HashSet as HS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as S
 import qualified Data.List.NonEmpty as L
 import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
-import Data.Typeable
-
+import Control.Monad.Trans.Class
+import Type.Reflection
 import Algebra.Graph.AdjacencyMap
 
 import Node
 import Environment
 import Data.Maybe (mapMaybe, fromJust, isJust, isNothing)
 
-data Task where
-    Task :: { targets :: [Node], sources :: [Node], action :: IO Bool } -> Task
+type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
+type Action vars = (ActionM vars) Bool
 
-instance Eq Task where
-    (==) :: Task -> Task -> Bool
+data Task vars where
+    Task :: { targets :: [Node], sources :: [Node], action :: Action vars } -> Task vars
+
+instance Eq (Task vars) where
+    (==) :: Task vars -> Task vars -> Bool
     (==) t1 t2 = head t1.targets == head t2.targets
 
-instance Show Task where
+instance Show (Task vars) where
     show (Task targets _ _) = "[[[" ++ (show . head $ targets) ++ "]]]"
 
 data TaskStatus = Pending | Done | Failed deriving (Eq, Show, Enum)
 
 data ExecutionContext vars where
-    ExecutionContext :: { target :: Node, env :: Maybe (Environment vars), task :: Maybe Task, status :: TaskStatus } -> ExecutionContext vars deriving Show
+    ExecutionContext :: { target :: Node, env :: Maybe (Environment vars), task :: Maybe (Task vars), status :: TaskStatus } -> ExecutionContext vars deriving Show
+
+executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
+executeTask env task@(Task targets sources action) =
+    runReaderT (runStateT action env) task
+
+gett :: ActionM vars (Task vars)
+gett = lift ask
+getenv :: ActionM vars (Environment vars)
+getenv = get
+putenv :: Environment vars -> ActionM vars ()
+putenv = put
+modenv :: (Environment vars -> Environment vars) -> ActionM vars ()
+modenv = modify
 
 transformWithNode :: Typeable vars => Node -> Environment vars -> Environment vars
 transformWithNode (ValueNode _ _ tr) = eTransform tr
@@ -84,7 +101,7 @@ execute deps = mapM execute_context where
                  | otherwise = Failed
                 new_context result = ExecutionContext node new_env task (new_status result)
               in do
-                result <- if not incomplete_src && status == Pending && ready then liftIO t.action else liftIO $ return False
+                (result, result_env) <- if not incomplete_src && status == Pending && ready then liftIO (executeTask (fromJust new_env) t) else return (False, fromJust env)
                 modify $ HM.insert node $ new_context result
                 return $ new_context result
         where
@@ -96,5 +113,5 @@ execute deps = mapM execute_context where
             src_failed src = Failed `elem` map (.status) src
             src_done = all ((==Done) . (.status))
 
-build :: Typeable vars => AdjacencyMap Node -> Environment vars -> L.NonEmpty (Node, Maybe Task) -> IO (ContextList vars, Contexts vars)
+build :: Typeable vars => AdjacencyMap Node -> Environment vars -> L.NonEmpty (Node, Maybe (Task vars)) -> IO (ContextList vars, Contexts vars)
 build deps env nodes = runStateT (execute deps $ contextList deps env nodes) HM.empty
