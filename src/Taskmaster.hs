@@ -58,60 +58,53 @@ contextList deps env = L.map mkCtx where
 type Contexts vars = HM.HashMap Node (ExecutionContext vars)
 type ContextList vars = L.NonEmpty (ExecutionContext vars)
 
+transformContext :: Typeable vars => AdjacencyMap Node -> Contexts vars -> ExecutionContext vars -> ExecutionContext vars
+transformContext deps ctx context@(ExecutionContext node env task status) =
+    let
+        sources target = postSet target deps
+        sources_t targets = S.unions $ map sources targets
+        lookup_src ctx = map (`HM.lookup` ctx) . S.toList
+        lookup_ctx ctx targets = sequence $ lookup_src ctx $ sources_t targets
+        source_ctx = lookup_ctx ctx (case task of
+            Just t -> t.targets
+            Nothing -> [node])
+        src_complete = isJust source_ctx
+        src = fromJust source_ctx
+        source_env = foldr1 eMerge $ mapMaybe ((.env)) src
+        src_failed = Failed `elem` map (.status) src
+        src_done = all ((==Done) . (.status)) src
+        new_status
+          | status /= Pending = status
+          | not src_complete  = Pending
+          | src_failed        = Failed
+          | src_done          = if isJust task then Pending else Done
+          | otherwise         = Pending
+        new_env
+          | isJust env       = env
+          | not src_complete = Nothing
+          | src_failed       = Nothing
+          | src_done         = if isJust task then Just source_env else Just $ transformWithNode node source_env
+          | otherwise        = Nothing
+    in
+        ExecutionContext node new_env task new_status
+
 execute :: (Typeable vars) => AdjacencyMap Node -> ContextList vars -> StateT (Contexts vars) IO (ContextList vars)
 execute deps = mapM execute_context where
     execute_context context@(ExecutionContext node env task status) = do
         ctx <- get
+        let src_context = transformContext deps ctx context
         case task of
-            Nothing -> 
-              let
-                source_ctx = fromJust $ lookup_ctx ctx [node]
-                failed = src_failed source_ctx
-                done = src_done source_ctx
-                new_status
-                 | status /= Pending = status
-                 | done      = Done
-                 | failed    = Failed
-                 | otherwise = Pending
-                new_env
-                 | isJust env = env
-                 | new_status == Done = Just $ source_env source_ctx
-                 | otherwise  = Nothing
-                new_context = ExecutionContext node new_env Nothing new_status
-              in do
+            Nothing -> do
+                modify $ HM.insert node src_context
+                return src_context
+            Just t -> do
+                (result, result_env) <- if src_context.status == Pending && isJust src_context.env then
+                    liftIO (executeTask (fromJust src_context.env) t)
+                        else
+                    return (False, fromJust env)
+                let new_context = ExecutionContext node (Just result_env) task (if result then Done else Failed)
                 modify $ HM.insert node new_context
                 return new_context
-            Just t ->
-              let
-                source_ctx_m = lookup_ctx ctx t.targets
-                incomplete_src = isNothing source_ctx_m
-                source_ctx = fromJust source_ctx_m
-                pre_failed = src_failed source_ctx
-                ready = src_done source_ctx
-                src_env = source_env source_ctx
-                new_env
-                 | isJust env = env
-                 | ready = Just src_env
-                 | otherwise = Nothing
-                new_status result
-                 | incomplete_src = Pending
-                 | status /= Pending = status
-                 | pre_failed = Failed
-                 | result = Done
-                 | otherwise = Failed
-                new_context result = ExecutionContext node new_env task (new_status result)
-              in do
-                (result, result_env) <- if not incomplete_src && status == Pending && ready then liftIO (executeTask (fromJust new_env) t) else return (False, fromJust env)
-                modify $ HM.insert node $ new_context result
-                return $ new_context result
-        where
-            lookup_ctx ctx targets = sequence $ lookup_src ctx $ sources_t targets
-            lookup_src ctx = map (`HM.lookup` ctx) . S.toList
-            sources target = postSet target deps
-            sources_t targets = S.unions $ map sources targets
-            source_env src = transformWithNode node $ foldr1 eMerge $ mapMaybe ((.env)) src
-            src_failed src = Failed `elem` map (.status) src
-            src_done = all ((==Done) . (.status))
 
 build :: Typeable vars => AdjacencyMap Node -> Environment vars -> L.NonEmpty (Node, Maybe (Task vars)) -> IO (ContextList vars, Contexts vars)
 build deps env nodes = runStateT (execute deps $ contextList deps env nodes) HM.empty
