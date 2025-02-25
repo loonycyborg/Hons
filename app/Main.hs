@@ -5,12 +5,14 @@ import qualified Hons (someFunc)
 import qualified DepGraph
 import qualified Environment
 import qualified Taskmaster
+import CmdLine
 import Environment
 import Node (filelist, mkFsNode, mkPropagator)
 import Builder
 
 import Algebra.Graph.Export.Dot
 import qualified Control.Monad.Trans.State.Strict as State
+import qualified Data.Text.Short as TS
 
 envp =
   envVar @"jobs"    (0 :: Int)      :+:
@@ -52,6 +54,7 @@ cyc = command sources targets (return True)
 mkO o c = command o c do
   task <- Taskmaster.gett
   Taskmaster.liftIO $ print ("Pretending to build object: " ++ show task.targets ++ " -> " ++ show task.sources)
+  Taskmaster.liftIO $ spawnCmd (Cmd (TS.pack "echo") :*: task.targets :*: TS.pack "->" :*: task.sources)
   return True
 
 rules = r <> prule
