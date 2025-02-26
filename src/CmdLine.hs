@@ -28,6 +28,9 @@ instance Argument Int where
 instance Argument TS.ShortText where
     toCmdLine = (:[]) . encodeArg . TS.unpack
 
+instance Argument String where
+    toCmdLine = (:[]) . encodeArg
+
 instance Argument a => Argument (Maybe a) where
     toCmdLine (Just a) = toCmdLine a
     toCmdLine Nothing = []
@@ -36,21 +39,21 @@ instance Argument Node where
     toCmdLine (FsNode f) = [f]
     toCmdLine (ValueNode _ v _) = [encodeArg v]
 
-instance (Argument a, Foldable f) => Argument (f a) where
+instance {-# OVERLAPPABLE #-} (Argument a, Foldable f) => Argument (f a) where
     toCmdLine = foldMap toCmdLine
 
 data CmdLine where
     Cmd   :: Argument a => a -> CmdLine
-    (:*:) :: Argument a => CmdLine -> a -> CmdLine
-infixl 5 :*:
+    (:>) :: Argument a => CmdLine -> a -> CmdLine
+infixl 5 :>
 
 instance Show CmdLine where
     show (Cmd a) = show (toCmdLine a)
-    show (as :*: a) = show as ++ " " ++ show (toCmdLine a)
+    show (as :> a) = show as ++ " " ++ show (toCmdLine a)
 
 expand :: CmdLine -> NE.NonEmpty OsString
 expand (Cmd a) = NE.fromList . toCmdLine $ a
-expand (as :*: a) = expand as <> NE.fromList (toCmdLine a)
+expand (as :> a) = expand as <> NE.fromList (toCmdLine a)
 
 spawn :: NE.NonEmpty PosixString -> IO ProcessStatus
 spawn (cmd NE.:| args) = do
