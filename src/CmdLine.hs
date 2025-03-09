@@ -43,17 +43,17 @@ instance {-# OVERLAPPABLE #-} (Argument a, Foldable f) => Argument (f a) where
     toCmdLine = foldMap toCmdLine
 
 data CmdLine where
-    Cmd   :: Argument a => a -> CmdLine
-    (:>) :: Argument a => CmdLine -> a -> CmdLine
-infixl 5 :>
+    Cmd  :: Argument a => a -> CmdLine
+    (:$) :: Argument a => CmdLine -> a -> CmdLine
+infixl 5 :$
 
 instance Show CmdLine where
     show (Cmd a) = show (toCmdLine a)
-    show (as :> a) = show as ++ " " ++ show (toCmdLine a)
+    show (as :$ a) = show as ++ " " ++ show (toCmdLine a)
 
 expand :: CmdLine -> NE.NonEmpty OsString
 expand (Cmd a) = NE.fromList . toCmdLine $ a
-expand (as :> a) = expand as <> NE.fromList (toCmdLine a)
+expand (as :$ a) = expand as <> NE.fromList (toCmdLine a)
 
 spawn :: NE.NonEmpty PosixString -> IO ProcessStatus
 spawn (cmd NE.:| args) = do

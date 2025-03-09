@@ -54,7 +54,7 @@ cyc = command sources targets (return True)
 mkO o c = command o c do
   task <- Taskmaster.gett
   Taskmaster.liftIO $ print ("Pretending to build object: " ++ show task.targets ++ " -> " ++ show task.sources)
-  Taskmaster.liftIO $ spawnCmd $ Cmd "echo" :> task.targets :> "->" :> task.sources
+  Taskmaster.liftIO $ spawnCmd $ Cmd "echo" :$ task.targets :$ "->" :$ task.sources
   return True
 
 rules = r <> prule
