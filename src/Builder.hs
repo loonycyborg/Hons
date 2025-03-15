@@ -2,6 +2,7 @@
 module Builder where
 import Algebra.Graph.AdjacencyMap
 import qualified Data.HashMap.Strict as HM
+import Data.List.NonEmpty (NonEmpty, fromList)
 import DepGraph
 import Node
 import Taskmaster
@@ -16,6 +17,6 @@ command target source action = RuleSet (HM.fromList $ map (, task) tlist) (conne
     sgraph = toAdjacencyMap source
     tlist = Algebra.Graph.ToGraph.vertexList target
     slist = Algebra.Graph.ToGraph.vertexList source
-    task = Task tlist slist action
+    task = Task (fromList tlist) slist action
 propagate name env targets action = mconcat $ map (`depends` propagator) targets where
     propagator = mkPropagator name env action

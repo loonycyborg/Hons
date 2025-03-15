@@ -19,14 +19,14 @@ type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
 type Action vars = (ActionM vars) Bool
 
 data Task vars where
-    Task :: { targets :: [Node], sources :: [Node], action :: Action vars } -> Task vars
+    Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars } -> Task vars
 
 instance Eq (Task vars) where
     (==) :: Task vars -> Task vars -> Bool
-    (==) t1 t2 = head t1.targets == head t2.targets
+    (==) t1 t2 = L.head t1.targets == L.head t2.targets
 
 instance Show (Task vars) where
-    show (Task targets _ _) = "[[[" ++ (show . head $ targets) ++ "]]]"
+    show (Task targets _ _) = "[[[" ++ (show . L.head $ targets) ++ "]]]"
 
 data TaskStatus = Pending | Done | Failed deriving (Eq, Show, Enum)
 
@@ -66,7 +66,7 @@ transformContext deps ctx context@(ExecutionContext node env task status) =
         lookup_src ctx = map (`HM.lookup` ctx) . S.toList
         lookup_ctx ctx targets = sequence $ lookup_src ctx $ sources_t targets
         source_ctx = lookup_ctx ctx (case task of
-            Just t -> t.targets
+            Just t -> L.toList t.targets
             Nothing -> [node])
         src_complete = isJust source_ctx
         src = fromJust source_ctx
