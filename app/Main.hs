@@ -13,6 +13,8 @@ import Builder
 import Algebra.Graph.Export.Dot
 import qualified Control.Monad.Trans.State.Strict as State
 import qualified Data.Text.Short as TS
+import qualified Data.List.NonEmpty as NE
+import Data.Foldable (Foldable(fold))
 
 envp =
   envVar @"jobs"    (0 :: Int)      :+:
@@ -34,7 +36,7 @@ p = command targets objects do
   task <- Taskmaster.gett
   Taskmaster.liftIO $ print ("Pretending to build program: " ++ show task.targets ++ " -> " ++ show task.sources)
   return True
-r = p <> mconcat (zipWith mkO objects sources)
+r = p <> fold (NE.zipWith mkO objects sources)
 
 -- Propagator nodes modify environment associated with them
 -- In Hons each node has own environment associated with it
@@ -43,11 +45,11 @@ r = p <> mconcat (zipWith mkO objects sources)
 -- by propagator will carry over upstream
 
 prule =
-  propagate "test1" env [head sources] do
+  propagate "test1" env [NE.head sources] do
     State.modify $ eReplace @"c.flags" ["-funroll-loops"]
     State.modify $ eReplace @"switch" (Just True)
   <>
-  propagate "test2" env [last sources] do
+  propagate "test2" env [NE.last sources] do
     State.modify $ eReplace @"c.flags" ["-Ofast"]
 cyc = command sources targets (return True)
 
@@ -61,7 +63,7 @@ rules = r <> prule
 g = rules.graph
 t = rules.tasks
 
-order = DepGraph.buildOrder rules (head targets)
+order = DepGraph.buildOrder rules (NE.head targets)
 
 main :: IO ()
 main = do

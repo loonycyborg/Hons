@@ -12,6 +12,7 @@ import Language.Haskell.TH.Syntax ( Lift(lift, liftTyped) )
 import qualified Control.Monad.Trans.State.Strict as State
 import Data.Typeable
 import Data.List.NonEmpty (NonEmpty ((:|)), fromList)
+import qualified Data.List.NonEmpty as NE
 import Environment
 import Debug.Trace (trace)
 
@@ -46,15 +47,21 @@ instance Show Node where
 
 class NodeList l where
     toList :: l -> [Node]
-    toNonEmpty :: l -> NonEmpty Node
 
 instance NodeList Node where
     toList = (:[])
-    toNonEmpty = (:|[])
 
 instance Foldable f => NodeList (f Node) where
     toList = concatMap (:[])
-    toNonEmpty = fromList . concatMap (:[])
+
+class NodeList l => NodeListNonEmpty l where
+    toNonEmpty :: l -> NonEmpty Node
+
+instance NodeListNonEmpty Node where
+    toNonEmpty =  (:|[])
+
+instance NodeListNonEmpty (NonEmpty Node) where
+    toNonEmpty = id
 
 {-# NOINLINE baseDir #-}
 baseDir :: OsPath
@@ -71,7 +78,7 @@ mkPropagator name env st = ValueNode name name (Environment.EStateTransform st)
 filelist :: QuasiQuoter
 filelist = QuasiQuoter {
     quoteExp = \x -> do
-        let filelist' = map (mkFsNode . unsafeEncodeUtf) (words x)
+        let filelist' = NE.map (mkFsNode . unsafeEncodeUtf) (fromList . words $ x)
         lift filelist',
     quotePat = \_ -> fail "filelist quasiquoter doesn't support use as pattern",
     quoteType = \_ -> fail "filelist quasiquoter doesn't support use as type",
