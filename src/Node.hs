@@ -11,7 +11,7 @@ import Language.Haskell.TH.Quote ( QuasiQuoter(..) )
 import Language.Haskell.TH.Syntax ( Lift(lift, liftTyped) )
 import qualified Control.Monad.Trans.State.Strict as State
 import Data.Typeable
-
+import Data.List.NonEmpty (NonEmpty ((:|)), fromList)
 import Environment
 import Debug.Trace (trace)
 
@@ -44,13 +44,17 @@ instance Show Node where
     show (FsNode path) = "[fs|" ++ (unsafePerformIO . decodeFS $ path) ++ "|]"
     show (ValueNode name value _) = "[value|" ++ value ++ "|]"
 
-instance ToGraph Node where
-    type ToVertex Node = Node
-    toGraph = Vertex
+class NodeList l where
+    toList :: l -> [Node]
+    toNonEmpty :: l -> NonEmpty Node
 
-instance ToGraph [Node] where
-    type ToVertex [Node] = Node
-    toGraph nodes = overlays (map Vertex nodes)
+instance NodeList Node where
+    toList = (:[])
+    toNonEmpty = (:|[])
+
+instance Foldable f => NodeList (f Node) where
+    toList = concatMap (:[])
+    toNonEmpty = fromList . concatMap (:[])
 
 {-# NOINLINE baseDir #-}
 baseDir :: OsPath
