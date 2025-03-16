@@ -28,10 +28,20 @@ instance Eq (Task vars) where
 instance Show (Task vars) where
     show (Task targets _ _) = "[[[" ++ (show . L.head $ targets) ++ "]]]"
 
-data TaskStatus = Pending | Done | Failed deriving (Eq, Show, Enum)
-
 data ExecutionContext vars where
-    ExecutionContext :: { target :: Node, env :: Maybe (Environment vars), task :: Maybe (Task vars), status :: TaskStatus } -> ExecutionContext vars deriving Show
+    Pending :: { target :: Node, task :: Maybe (Task vars) } -> ExecutionContext vars
+    Ready   :: { target :: Node, env :: Environment vars, ready_task :: Task vars } -> ExecutionContext vars
+    Done    :: { target :: Node, env :: Environment vars } -> ExecutionContext vars
+    Failed  :: { target :: Node } -> ExecutionContext vars
+    deriving Show
+
+isDone :: ExecutionContext vars -> Bool
+isDone Done {} = True
+isDone _       = False
+
+isFailed :: ExecutionContext vars -> Bool
+isFailed Failed {} = True
+isFailed _         = False
 
 executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
 executeTask env task@(Task targets sources action) =
@@ -51,60 +61,55 @@ transformWithNode (ValueNode _ _ tr) = eTransform tr
 transformWithNode (FsNode _) = eTransform EIdentity
 
 contextList deps env = L.map mkCtx where
-    mkCtx (node, Nothing) = ExecutionContext node (if isLeaf then Just (transformWithNode node env) else Nothing) Nothing (if isLeaf then Done else Pending) where
+    mkCtx (node, Nothing) = if isLeaf then Done node (transformWithNode node env) else Pending node Nothing where
         isLeaf = null $ postSet node deps
-    mkCtx (node, Just task) = ExecutionContext node Nothing (Just task) Pending
+    mkCtx (node, Just task) = Pending node (Just task)
 
 type Contexts vars = HM.HashMap Node (ExecutionContext vars)
 type ContextList vars = L.NonEmpty (ExecutionContext vars)
 
 transformContext :: Typeable vars => AdjacencyMap Node -> Contexts vars -> ExecutionContext vars -> ExecutionContext vars
-transformContext deps ctx context@(ExecutionContext node env task status) =
+transformContext deps ctx context =
     let
         sources target = postSet target deps
         sources_t targets = S.unions $ map sources targets
         lookup_src ctx = map (`HM.lookup` ctx) . S.toList
         lookup_ctx ctx targets = sequence $ lookup_src ctx $ sources_t targets
-        source_ctx = lookup_ctx ctx (case task of
-            Just t -> L.toList t.targets
-            Nothing -> [node])
+        source_ctx = lookup_ctx ctx (case context of
+            Pending target (Just t) -> L.toList t.targets
+            _ -> [context.target])
         src_complete = isJust source_ctx
         src = fromJust source_ctx
-        source_env = foldr1 eMerge $ mapMaybe ((.env)) src
-        src_failed = Failed `elem` map (.status) src
-        src_done = all ((==Done) . (.status)) src
-        new_status
-          | status /= Pending = status
-          | not src_complete  = Pending
-          | src_failed        = Failed
-          | src_done          = if isJust task then Pending else Done
-          | otherwise         = Pending
-        new_env
-          | isJust env       = env
-          | not src_complete = Nothing
-          | src_failed       = Nothing
-          | src_done         = if isJust task then Just source_env else Just $ transformWithNode node source_env
-          | otherwise        = Nothing
+        source_env = foldr1 eMerge $ map ((.env)) src
+        src_failed = any isFailed src
+        src_done = all isDone src
+        src_context
+          | src_failed = Failed context.target
+          | src_complete && src_done = Done context.target source_env
+          | otherwise = Pending context.target context.task
     in
-        ExecutionContext node new_env task new_status
+        case (src_context, context) of
+            (_, Failed target) -> Failed target
+            (Failed {}, _) -> src_context
+            (Pending {}, _) -> src_context
+            (Done _ env, Pending target (Just ready_task)) -> Ready target env ready_task
+            (Done _ env, Pending target Nothing) -> Done target (transformWithNode target env)
+            _ -> context
 
 execute :: (Typeable vars) => AdjacencyMap Node -> ContextList vars -> StateT (Contexts vars) IO (ContextList vars)
 execute deps = mapM execute_context where
-    execute_context context@(ExecutionContext node env task status) = do
+    execute_context context = do
         ctx <- get
         let src_context = transformContext deps ctx context
-        case task of
-            Nothing -> do
-                modify $ HM.insert node src_context
+        case src_context of
+            Ready target env ready_task -> do
+                (result, result_env) <- liftIO $ executeTask env ready_task
+                let result_context = if result then Done src_context.target result_env else Failed src_context.target
+                modify $ HM.insert src_context.target result_context
+                return result_context
+            _ -> do
+                modify $ HM.insert src_context.target src_context
                 return src_context
-            Just t -> do
-                (result, result_env) <- if src_context.status == Pending && isJust src_context.env then
-                    liftIO (executeTask (fromJust src_context.env) t)
-                        else
-                    return (False, fromJust env)
-                let new_context = ExecutionContext node (Just result_env) task (if result then Done else Failed)
-                modify $ HM.insert node new_context
-                return new_context
 
 build :: Typeable vars => AdjacencyMap Node -> Environment vars -> L.NonEmpty (Node, Maybe (Task vars)) -> IO (ContextList vars, Contexts vars)
 build deps env nodes = runStateT (execute deps $ contextList deps env nodes) HM.empty
