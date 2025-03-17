@@ -12,6 +12,7 @@ import Language.Haskell.TH.Syntax ( Lift(lift, liftTyped) )
 import qualified Control.Monad.Trans.State.Strict as State
 import Data.Typeable
 import Data.List.NonEmpty (NonEmpty ((:|)), fromList)
+import Data.Foldable1 (Foldable1 (foldMap1))
 import qualified Data.List.NonEmpty as NE
 import Environment
 import Debug.Trace (trace)
@@ -60,8 +61,8 @@ class NodeList l => NodeListNonEmpty l where
 instance NodeListNonEmpty Node where
     toNonEmpty =  (:|[])
 
-instance NodeListNonEmpty (NonEmpty Node) where
-    toNonEmpty = id
+instance Foldable1 f => NodeListNonEmpty (f Node) where
+    toNonEmpty = foldMap1 (:|[])
 
 {-# NOINLINE baseDir #-}
 baseDir :: OsPath
