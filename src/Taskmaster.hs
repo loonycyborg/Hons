@@ -35,13 +35,13 @@ data ExecutionContext vars where
     Failed  :: { target :: Node } -> ExecutionContext vars
     deriving Show
 
-isDone :: ExecutionContext vars -> Bool
-isDone Done {} = True
-isDone _       = False
-
-isFailed :: ExecutionContext vars -> Bool
-isFailed Failed {} = True
-isFailed _         = False
+classifyCtx :: Foldable t => t (ExecutionContext vars) -> ([ExecutionContext vars], [ExecutionContext vars], [ExecutionContext vars])
+classifyCtx = foldr classifyContext ([], [], []) where
+    classifyContext c (lDone, lFailed, lUnbuilt) =
+        case c of
+            Done {}   -> (c:lDone,   lFailed,   lUnbuilt)
+            Failed {} -> (  lDone, c:lFailed,   lUnbuilt)
+            _         -> (  lDone,   lFailed, c:lUnbuilt)
 
 executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
 executeTask env task@(Task targets sources action) =
@@ -80,12 +80,12 @@ transformContext deps ctx context =
             _ -> [context.target])
         src_complete = isJust source_ctx
         src = fromJust source_ctx
-        source_env = foldr1 eMerge $ map ((.env)) src
-        src_failed = any isFailed src
-        src_done = all isDone src
+        (src_done, src_failed, src_unbuilt) = classifyCtx src
+        source_env = foldr1 eMerge $ map ((.env)) src_done
         src_context
-          | src_failed = Failed context.target
-          | src_complete && src_done = Done context.target source_env
+          | not src_complete = Pending context.target context.task
+          | not $ null src_failed = Failed context.target
+          | null src_unbuilt = Done context.target source_env
           | otherwise = Pending context.target context.task
     in
         case (src_context, context) of
