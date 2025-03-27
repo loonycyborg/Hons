@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, FlexibleContexts, BlockArguments, TypeApplications, DataKinds, ConstraintKinds, TypeOperators #-}
+{-# LANGUAGE GADTs, FlexibleContexts, BlockArguments, TypeApplications, DataKinds, ConstraintKinds #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -17,11 +17,6 @@ toolEnv =
   envVar "gcc" :+:
   EnvNihil
 
-type ToolConstraint vars = (
-    LookupType "cc.com" vars ~ LookupType "cc.com" ToolVars,
-    LookupType "cc.linkcom" vars ~ LookupType "cc.linkcom" ToolVars
-    )
-
 data Flag where
     Compile :: Flag
     Output  :: Argument a => a -> Flag
@@ -30,13 +25,13 @@ instance Argument Flag where
     toCmdLine Compile = [encodeArg "-c"]
     toCmdLine (Output a) = encodeArg "-o" : toCmdLine a
 
-compile :: (ToolConstraint vars) => Node -> Node -> RuleSet vars
+compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
 compile target source = command target source do
     env <- getenv
     let cc = eLookup @"cc.com" env
     fmap success $ liftIO $ spawnCmdPrint $ Cmd cc :$ Compile :$ Output target :$ source
 
-link :: (ToolConstraint vars, Argument s, NodeList s) => Node -> s -> RuleSet vars
+link :: (UseEnv ToolVars vars, Argument s, NodeList s) => Node -> s -> RuleSet vars
 link target sources = command target sources do
     env <- getenv
     let ld = eLookup @"cc.linkcom" env

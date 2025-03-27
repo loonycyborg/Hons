@@ -51,6 +51,11 @@ type family Append l1 l2 where
   Append '[] xs = xs
   Append (y ': ys) xs = Append ys (y ': xs)
 
+type UseEnv :: [Type] -> [Type] -> Constraint
+type family UseEnv toolVars vars where
+  UseEnv (Tagged s v  ': tvars) evars = (LookupType s evars ~ v, UseEnv tvars evars)
+  UseEnv '[] _ = ()
+
 eProtoAppend :: EnvProto xs -> EnvProto ys -> EnvProto (Append xs ys)
 eProtoAppend EnvNihil e = e
 eProtoAppend (x :+: xs) e = eProtoAppend xs (x :+: e)
