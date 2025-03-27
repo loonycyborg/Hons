@@ -7,8 +7,9 @@ import qualified Environment
 import qualified Taskmaster
 import CmdLine
 import Environment
-import Node (filelist, mkFsNode, mkPropagator)
+import Node (fs, filelist, mkFsNode, mkPropagator, Node(..))
 import Builder
+import Tool.CC as CC
 
 import Algebra.Graph.Export.Dot
 import qualified Control.Monad.Trans.State.Strict as State
@@ -17,10 +18,10 @@ import qualified Data.List.NonEmpty as NE
 import Data.Foldable (Foldable(fold))
 
 envp =
-  envVar @"jobs"    (0 :: Int)      :+:
-  envVar @"c.flags" ([] ::[String]) :+:
-  envVar @"c.cc"    "gcc"           :+:
-  envVar @"switch"  (Nothing :: Maybe Bool) :+:
+  envVar @"jobs"       (0 :: Int)              :+:
+  envVar @"cc.com"     "gcc"                   :+:
+  envVar @"cc.linkcom" "gcc"                   :+:
+  envVar @"switch"     (Nothing :: Maybe Bool) :+:
   EnvNihil
 
 env = makeEnv envp
@@ -46,11 +47,8 @@ r = p <> fold (NE.zipWith mkO objects sources)
 
 prule =
   propagate "test1" env [NE.head sources] do
-    State.modify $ eReplace @"c.flags" ["-funroll-loops"]
     State.modify $ eReplace @"switch" (Just True)
-  <>
-  propagate "test2" env [NE.last sources] do
-    State.modify $ eReplace @"c.flags" ["-Ofast"]
+
 cyc = command sources targets (return True)
 
 mkO o c = command o c do
@@ -59,11 +57,14 @@ mkO o c = command o c do
   Taskmaster.liftIO $ spawnCmd $ Cmd "echo" :$ task.targets :$ "->" :$ task.sources
   return True
 
-rules = r <> prule
+o = CC.compile [fs|example/hello.o|] [fs|example/hello.c|]
+prog = CC.link [fs|example/hello|] [fs|example/hello.o|]
+
+rules = r <> prule <> o <> prog
 g = rules.graph
 t = rules.tasks
 
-order = DepGraph.buildOrder rules (NE.head targets)
+order = DepGraph.buildOrder rules [fs|example/hello|]
 
 main :: IO ()
 main = do

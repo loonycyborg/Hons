@@ -16,6 +16,7 @@ import Data.Foldable1 (Foldable1 (foldMap1))
 import qualified Data.List.NonEmpty as NE
 import Environment
 import Debug.Trace (trace)
+import System.OsString (encodeLE)
 
 data Node where
     FsNode :: { path :: OsPath } -> Node
@@ -64,6 +65,8 @@ instance NodeListNonEmpty Node where
 instance Foldable1 f => NodeListNonEmpty (f Node) where
     toNonEmpty = foldMap1 (:|[])
 
+encodeFilename = unsafePerformIO . encodeLE
+
 {-# NOINLINE baseDir #-}
 baseDir :: OsPath
 baseDir = unsafePerformIO . canonicalizePath . unsafeEncodeUtf $ "."
@@ -76,10 +79,20 @@ mkValue name = ValueNode name name EIdentity
 mkPropagator :: Typeable vars => String -> Environment vars -> State.State (Environment vars) () -> Node
 mkPropagator name env st = ValueNode name name (Environment.EStateTransform st) 
 
+fs :: QuasiQuoter
+fs = QuasiQuoter {
+    quoteExp = \x -> do
+        let file' = mkFsNode . encodeFilename $ x
+        lift file',
+    quotePat = \_ -> fail "filelist quasiquoter doesn't support use as pattern",
+    quoteType = \_ -> fail "filelist quasiquoter doesn't support use as type",
+    quoteDec = \_ -> fail "filelist quasiquoter doesn't support use as declaration"
+}
+
 filelist :: QuasiQuoter
 filelist = QuasiQuoter {
     quoteExp = \x -> do
-        let filelist' = NE.map (mkFsNode . unsafeEncodeUtf) (fromList . words $ x)
+        let filelist' = NE.map (mkFsNode . encodeFilename) (fromList . words $ x)
         lift filelist',
     quotePat = \_ -> fail "filelist quasiquoter doesn't support use as pattern",
     quoteType = \_ -> fail "filelist quasiquoter doesn't support use as type",

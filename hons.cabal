@@ -10,10 +10,10 @@ maintainer:         loonycyborg@gmail.com
 category:           Development
 
 library
-    exposed-modules:  Hons, Node, DepGraph, Taskmaster, Environment, Builder, CmdLine
+    exposed-modules:  Hons, Node, DepGraph, Taskmaster, Environment, Builder, CmdLine, Tool.CC
     build-depends:    base
                     , filepath >= 1.5.0.0
-		            , os-string
+                    , os-string
                     , directory
                     , unix >= 2.8.6.0
                     , template-haskell

@@ -3,10 +3,10 @@
 module CmdLine where
 
 import System.OsString
-    ( OsString, coercionToPlatformTypes, encodeLE )
+    ( OsString, coercionToPlatformTypes, encodeLE, decodeLE, intercalate )
 import System.OsString.Posix ( PosixString )
 import System.Posix.Process.PosixString
-    ( forkProcess, executeFile, getProcessStatus, ProcessStatus )
+    ( forkProcess, executeFile, getProcessStatus, ProcessStatus(..) )
 import qualified Data.Text.Short as TS
 import qualified Data.List.NonEmpty as NE
 
@@ -15,6 +15,7 @@ import Data.Type.Coercion ( coerceWith )
 import Data.Foldable ( Foldable(toList), concat )
 
 import Node ( Node(ValueNode, FsNode) )
+import GHC.IO.Exception (ExitCode(..))
 
 {-# NOINLINE encodeArg #-}
 encodeArg = unsafePerformIO . encodeLE
@@ -55,6 +56,9 @@ expand :: CmdLine -> NE.NonEmpty OsString
 expand (Cmd a) = NE.fromList . toCmdLine $ a
 expand (as :$ a) = expand as <> NE.fromList (toCmdLine a)
 
+expandToStr (Cmd a) = intercalate (encodeArg " ") $ toCmdLine a
+expandToStr (as :$ a) = intercalate (encodeArg " ") $ expandToStr as : toCmdLine a
+
 spawn :: NE.NonEmpty PosixString -> IO ProcessStatus
 spawn (cmd NE.:| args) = do
     pid <- forkProcess do
@@ -68,3 +72,11 @@ spawnCmd cmdline =
     in
         case coercionToPlatformTypes of
             Right (_, coercion) -> spawn $ fmap (coerceWith coercion) args
+
+spawnCmdPrint cmdline = do
+    str <- decodeLE . expandToStr $ cmdline
+    putStrLn str
+    spawnCmd cmdline
+
+success (Exited ExitSuccess) = True
+success _ = False
