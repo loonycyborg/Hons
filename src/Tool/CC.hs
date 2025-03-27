@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs, FlexibleContexts, BlockArguments, TypeApplications, DataKinds #-}
+{-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
 import Builder
