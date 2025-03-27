@@ -9,7 +9,7 @@ import CmdLine
 import Environment
 import Node (fs, filelist, mkFsNode, mkPropagator, Node(..))
 import Builder
-import Tool.CC as CC
+import qualified Tool.CC as CC
 
 import Algebra.Graph.Export.Dot
 import qualified Control.Monad.Trans.State.Strict as State
@@ -18,9 +18,8 @@ import qualified Data.List.NonEmpty as NE
 import Data.Foldable (Foldable(fold))
 
 envp =
+  CC.toolEnv                                    +:
   envVar @"jobs"       (0 :: Int)              :+:
-  envVar @"cc.com"     "gcc"                   :+:
-  envVar @"cc.linkcom" "gcc"                   :+:
   envVar @"switch"     (Nothing :: Maybe Bool) :+:
   EnvNihil
 

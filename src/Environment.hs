@@ -46,6 +46,18 @@ type family LookupType s a where
   LookupType s (x ': xs) = LookupType s xs
   LookupType s '[] = TypeError (Text "Unknown environment variable " :<>: ShowType s)
 
+type Append :: [Type] -> [Type] -> [Type]
+type family Append l1 l2 where
+  Append '[] xs = xs
+  Append (y ': ys) xs = Append ys (y ': xs)
+
+eProtoAppend :: EnvProto xs -> EnvProto ys -> EnvProto (Append xs ys)
+eProtoAppend EnvNihil e = e
+eProtoAppend (x :+: xs) e = eProtoAppend xs (x :+: e)
+
+(+:) = eProtoAppend
+infixl 4 +:
+
 data VarHolder = forall a . ConstructionVariable a => VarHolder a
 instance Show VarHolder where
   show (VarHolder x) = show x

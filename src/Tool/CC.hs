@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, FlexibleContexts, BlockArguments, TypeApplications, DataKinds #-}
+{-# LANGUAGE GADTs, FlexibleContexts, BlockArguments, TypeApplications, DataKinds, TypeOperators #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -8,6 +8,14 @@ import Taskmaster
 import Environment
 import Node
 import DepGraph
+import Data.Tagged
+
+type ToolVars = [Tagged "cc.com" String, Tagged "cc.linkcom" String]
+toolEnv :: EnvProto ToolVars
+toolEnv =
+  envVar "gcc" :+:
+  envVar "gcc" :+:
+  EnvNihil
 
 data Flag where
     Compile :: Flag
@@ -17,13 +25,13 @@ instance Argument Flag where
     toCmdLine Compile = [encodeArg "-c"]
     toCmdLine (Output a) = encodeArg "-o" : toCmdLine a
 
-compile :: (ConstructionVariable (LookupType "cc.com" vars), Argument (LookupType "cc.com" vars)) => Node -> Node -> RuleSet vars
+compile :: (LookupType "cc.com" vars ~ LookupType "cc.com" ToolVars) => Node -> Node -> RuleSet vars
 compile target source = command target source do
     env <- getenv
     let cc = eLookup @"cc.com" env
     fmap success $ liftIO $ spawnCmdPrint $ Cmd cc :$ Compile :$ Output target :$ source
 
-link :: (ConstructionVariable (LookupType "cc.linkcom" vars), Argument (LookupType "cc.linkcom" vars), Argument s, NodeList s) => Node -> s -> RuleSet vars
+link :: (LookupType "cc.linkcom" vars ~ LookupType "cc.linkcom" ToolVars, Argument s, NodeList s) => Node -> s -> RuleSet vars
 link target sources = command target sources do
     env <- getenv
     let ld = eLookup @"cc.linkcom" env
