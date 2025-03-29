@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 module DepGraph where
 import Node ( Node )
 import Taskmaster (Task(Task))

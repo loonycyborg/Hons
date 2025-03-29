@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, ExistentialQuantification, TemplateHaskellQuotes, TypeFamilies, FlexibleInstances #-}
+{-# LANGUAGE TemplateHaskellQuotes, TypeFamilies #-}
 
 module Node where
 import System.OsPath

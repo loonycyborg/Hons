@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, FlexibleInstances, BlockArguments #-}
+{-# LANGUAGE BlockArguments #-}
 
 module CmdLine where
 

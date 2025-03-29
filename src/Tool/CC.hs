@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, FlexibleContexts, BlockArguments, TypeApplications, DataKinds, ConstraintKinds #-}
+{-# LANGUAGE BlockArguments, DataKinds #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 

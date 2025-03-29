@@ -1,4 +1,3 @@
-{-# LANGUAGE GADTs, TupleSections #-}
 module Builder where
 import Algebra.Graph.AdjacencyMap
 import qualified Data.HashMap.Strict as HM

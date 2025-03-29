@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, OverloadedRecordDot, InstanceSigs, FlexibleContexts #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 module Taskmaster (module Taskmaster, liftIO) where
 import qualified Data.HashSet as HS
 import qualified Data.HashMap.Strict as HM

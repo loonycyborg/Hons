@@ -1,18 +1,9 @@
 {-# LANGUAGE
-  GADTs,
   DataKinds,
-  StandaloneKindSignatures,
-  TypeOperators,
-  ScopedTypeVariables,
   TypeFamilies,
-  TypeApplications,
   UndecidableInstances,
-  TypeSynonymInstances,
-  FlexibleInstances,
   OverloadedRecordDot,
-  AllowAmbiguousTypes,
-  RankNTypes,
-  FlexibleContexts
+  AllowAmbiguousTypes
 #-}
 
 module Environment where

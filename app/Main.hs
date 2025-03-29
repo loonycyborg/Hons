@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedRecordDot, QuasiQuotes, DataKinds, TypeApplications, BlockArguments #-}
+{-# LANGUAGE OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments #-}
 module Main where
 
 import qualified Hons (someFunc)

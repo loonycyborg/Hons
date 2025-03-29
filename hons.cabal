@@ -25,7 +25,7 @@ library
                     , hashable
                     , tagged
     hs-source-dirs:   src
-    default-language: Haskell2010
+    default-language: GHC2021
 
 executable hons
     main-is:          Main.hs
@@ -38,10 +38,10 @@ executable hons
         text-short
 
     hs-source-dirs:   app
-    default-language: Haskell2010
+    default-language: GHC2021
 
 test-suite hons-test
-    default-language: Haskell2010
+    default-language: GHC2021
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          MyLibTest.hs
