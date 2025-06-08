@@ -45,4 +45,4 @@ test-suite hons-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          MyLibTest.hs
-    build-depends:    base ^>=4.16.4.0
+    build-depends:    base
