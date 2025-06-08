@@ -3,8 +3,9 @@
 module CmdLine where
 
 import System.OsString
-    ( OsString, coercionToPlatformTypes, encodeLE, decodeLE, intercalate )
+    ( OsString, coercionToPlatformTypes, intercalate )
 import System.OsString.Posix ( PosixString )
+import System.OsPath ( encodeFS, decodeFS)
 import System.Posix.Process.PosixString
     ( forkProcess, executeFile, getProcessStatus, ProcessStatus(..) )
 import qualified Data.Text.Short as TS
@@ -18,7 +19,7 @@ import Node ( Node(ValueNode, FsNode) )
 import GHC.IO.Exception (ExitCode(..))
 
 {-# NOINLINE encodeArg #-}
-encodeArg = unsafePerformIO . encodeLE
+encodeArg = unsafePerformIO . encodeFS
 
 class Argument a where
     toCmdLine :: a -> [OsString]
@@ -74,7 +75,7 @@ spawnCmd cmdline =
             Right (_, coercion) -> spawn $ fmap (coerceWith coercion) args
 
 spawnCmdPrint cmdline = do
-    str <- decodeLE . expandToStr $ cmdline
+    str <- decodeFS . expandToStr $ cmdline
     putStrLn str
     spawnCmd cmdline
 

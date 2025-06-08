@@ -16,7 +16,6 @@ import Data.Foldable1 (Foldable1 (foldMap1))
 import qualified Data.List.NonEmpty as NE
 import Environment
 import Debug.Trace (trace)
-import System.OsString (encodeLE)
 
 data Node where
     FsNode :: { path :: OsPath } -> Node
@@ -65,7 +64,7 @@ instance NodeListNonEmpty Node where
 instance Foldable1 f => NodeListNonEmpty (f Node) where
     toNonEmpty = foldMap1 (:|[])
 
-encodeFilename = unsafePerformIO . encodeLE
+encodeFilename = unsafePerformIO . encodeFS
 
 {-# NOINLINE baseDir #-}
 baseDir :: OsPath
