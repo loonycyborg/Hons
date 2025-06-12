@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, OverloadedRecordDot, GADTs, QuasiQuotes #-}
+{-# LANGUAGE BlockArguments, GADTs, QuasiQuotes #-}
 import GHC
 import GHC.Data.StringBuffer
 import GHC.Paths ( libdir )
@@ -30,7 +30,7 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         dflags <- liftIO $ interpretPackageEnv logger dflags
                                   { backend   = interpreterBackend
                                   , ghcLink   = LinkInMemory
-                                  , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments ]
+                                  , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments ] `difference` (fromList [FieldSelectors])
                                   , packageEnv = Just "./henv" }
         setSessionDynFlags dflags
         let script_file = "Honstruct"

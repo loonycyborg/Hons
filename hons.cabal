@@ -26,6 +26,7 @@ library
                     , tagged
     hs-source-dirs:   src
     default-language: GHC2021
+    default-extensions: OverloadedRecordDot, NoFieldSelectors
 
 executable hons
     main-is:          Main.hs
@@ -43,6 +44,7 @@ executable hons
 
     hs-source-dirs:   app
     default-language: GHC2021
+    default-extensions: OverloadedRecordDot, NoFieldSelectors
 
 test-suite hons-test
     default-language: GHC2021

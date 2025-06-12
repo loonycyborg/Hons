@@ -13,7 +13,7 @@ envp =
   envVar @"switch"     (Nothing :: Maybe Bool) :+:
   EnvNihil
 
-e = makeEnv envp
+env = makeEnv envp
 
 targets = [filelist|prog|]
 sources = [filelist|src1.c src2.c|]
@@ -31,7 +31,7 @@ r = p <> fold (NE.zipWith mkO objects sources)
 -- by propagator will carry over upstream
 
 prule =
-  propagate "test1" e [NE.head sources] do
+  propagate "test1" env [NE.head sources] do
     pModify $ eReplace @"switch" (Just True)
 
 cyc = command sources targets (return True)
@@ -45,6 +45,6 @@ mkO o c = command o c do
 o = CC.compile [fs|example/hello.o|] [fs|example/hello.c|]
 prog = CC.link [fs|example/hello|] [fs|example/hello.o|]
 
-rs = o <> prog <> prule <> r
+rules = o <> prog <> prule <> r
 
-project = Project e rs
+project = Project env rules
