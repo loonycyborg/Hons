@@ -1,0 +1,50 @@
+import qualified Tool.CC as CC
+import Node
+import Environment
+import Builder
+import qualified Taskmaster
+import CmdLine
+import qualified Data.List.NonEmpty as NE
+import Data.Foldable (Foldable(fold))
+
+envp =
+  CC.toolEnv                                    +:
+  envVar @"jobs"       (0 :: Int)              :+:
+  envVar @"switch"     (Nothing :: Maybe Bool) :+:
+  EnvNihil
+
+e = makeEnv envp
+
+targets = [filelist|prog|]
+sources = [filelist|src1.c src2.c|]
+objects = [filelist|src1.o src2.o|]
+p = command targets objects do
+  task <- Taskmaster.gett
+  Taskmaster.liftIO $ print ("Pretending to build program: " ++ show task.targets ++ " -> " ++ show task.sources)
+  return True
+r = p <> fold (NE.zipWith mkO objects sources)
+
+-- Propagator nodes modify environment associated with them
+-- In Hons each node has own environment associated with it
+-- that is calculated by merging the node's source environments
+-- therefore all environment overrides such as those introduced
+-- by propagator will carry over upstream
+
+prule =
+  propagate "test1" e [NE.head sources] do
+    pModify $ eReplace @"switch" (Just True)
+
+cyc = command sources targets (return True)
+
+mkO o c = command o c do
+  task <- Taskmaster.gett
+  Taskmaster.liftIO $ print ("Pretending to build object: " ++ show task.targets ++ " -> " ++ show task.sources)
+  Taskmaster.liftIO $ spawnCmd $ Cmd "echo" :$ task.targets :$ "->" :$ task.sources
+  return True
+
+o = CC.compile [fs|example/hello.o|] [fs|example/hello.c|]
+prog = CC.link [fs|example/hello|] [fs|example/hello.o|]
+
+rs = o <> prog <> prule <> r
+
+project = Project e rs
