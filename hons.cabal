@@ -1,54 +1,70 @@
-cabal-version:      3.0
-name:               hons
-version:            0.1.0.0
-synopsis:           SCons-like build tool
-homepage:           loonylinuxbox.mooo.com
-license:            LGPL-3.0-or-later
-license-file:       LICENSE
-author:             Sergey Popov
-maintainer:         loonycyborg@gmail.com
-category:           Development
+cabal-version: 3.0
+name: hons
+version: 0.1.0.0
+synopsis: SCons-like build tool
+homepage: loonylinuxbox.mooo.com
+license: LGPL-3.0-or-later
+license-file: LICENSE
+author: Sergey Popov
+maintainer: loonycyborg@gmail.com
+category: Development
 
 library
-    exposed-modules:  Hons, Node, DepGraph, Taskmaster, Environment, Builder, CmdLine, Project, Tool.CC
-    build-depends:    base
-                    , filepath >= 1.5.0.0 && < 2.0.0.0
-                    , os-string
-                    , directory
-                    , unix >= 2.8.5.1
-                    , template-haskell
-                    , algebraic-graphs >= 0.7
-                    , containers
-                    , unordered-containers
-                    , text-short
-                    , transformers
-                    , hashable
-                    , tagged
-    hs-source-dirs:   src
-    default-language: GHC2021
-    default-extensions: OverloadedRecordDot, NoFieldSelectors
+  exposed-modules:
+    Builder
+    CmdLine
+    DepGraph
+    Environment
+    Hons
+    Node
+    Project
+    Taskmaster
+    Tool.CC
+
+  build-depends:
+    algebraic-graphs >=0.7,
+    base,
+    containers,
+    directory,
+    filepath >=1.5.0.0 && <2.0.0.0,
+    hashable,
+    os-string,
+    tagged,
+    template-haskell,
+    text-short,
+    transformers,
+    unix >=2.8.5.1,
+    unordered-containers,
+
+  hs-source-dirs: src
+  default-language: GHC2021
+  default-extensions:
+    NoFieldSelectors
+    OverloadedRecordDot
 
 executable hons
-    main-is:          Main.hs
-    build-depends:
-        base,
-        hons,
-        filepath >= 1.5.0.0 && < 2.0.0.0,
-        algebraic-graphs >= 0.7,
-        transformers,
-        text-short,
-        time,
-        ghc,
-        ghc-boot-th,
-        ghc-paths
+  main-is: Main.hs
+  build-depends:
+    algebraic-graphs >=0.7,
+    base,
+    filepath >=1.5.0.0 && <2.0.0.0,
+    ghc,
+    ghc-boot-th,
+    ghc-paths,
+    hons,
+    text-short,
+    time,
+    transformers,
 
-    hs-source-dirs:   app
-    default-language: GHC2021
-    default-extensions: OverloadedRecordDot, NoFieldSelectors
+  hs-source-dirs: app
+  default-language: GHC2021
+  default-extensions:
+    NoFieldSelectors
+    OverloadedRecordDot
 
 test-suite hons-test
-    default-language: GHC2021
-    type:             exitcode-stdio-1.0
-    hs-source-dirs:   test
-    main-is:          MyLibTest.hs
-    build-depends:    base
+  default-language: GHC2021
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: MyLibTest.hs
+  build-depends: base
