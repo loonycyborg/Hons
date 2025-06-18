@@ -9,7 +9,6 @@ import GHC.IO (unsafePerformIO)
 import Data.Hashable ( Hashable(hashWithSalt) )
 import Language.Haskell.TH.Quote ( QuasiQuoter(..) )
 import Language.Haskell.TH.Syntax ( Lift(lift, liftTyped) )
-import qualified Control.Monad.Trans.State.Strict as State
 import Data.Typeable
 import Data.List.NonEmpty (NonEmpty ((:|)), fromList)
 import Data.Foldable1 (Foldable1 (foldMap1))
@@ -75,10 +74,8 @@ mkAlias :: String -> Node
 mkAlias a = ValueNode a "" EDropOverrides
 mkValue :: String -> Node 
 mkValue name = ValueNode name name EIdentity
-mkPropagator :: Typeable vars => String -> Environment vars -> State.State (Environment vars) () -> Node
-mkPropagator name env st = ValueNode name name (Environment.EStateTransform st)
-pModify :: (Environment vars -> Environment vars) -> State.State (Environment vars) ()
-pModify = State.modify
+mkPropagator :: EnvTransform a => String -> a -> Node
+mkPropagator name tr = ValueNode name name tr
 
 fs :: QuasiQuoter
 fs = QuasiQuoter {

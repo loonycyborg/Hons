@@ -31,8 +31,8 @@ r = p <> fold (NE.zipWith mkO objects sources)
 -- by propagator will carry over upstream
 
 prule =
-  propagate "test1" env [NE.head sources] do
-    pModify $ eReplace @"switch" (Just True)
+  propagate "test1" [fs|example/hello.c|] $
+    eReplace @"switch" (Just True)
 
 cyc = command sources targets (return True)
 

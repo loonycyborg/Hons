@@ -7,6 +7,8 @@ import Node
 import Taskmaster
 import qualified Algebra.Graph
 import Algebra.Graph.ToGraph (ToGraph (toAdjacencyMap, ToVertex, vertexList))
+import Environment
+import Type.Reflection (Typeable)
 
 depends :: (NodeList a, NodeList b) => a -> b -> RuleSet vars
 depends target source = RuleSet HM.empty (connect (vertices $ toList target) (vertices $ toList source))
@@ -17,5 +19,9 @@ command target source action = RuleSet (HM.fromList $ map (, task) tlist) (conne
     tlist = toList target
     slist = toList source
     task = Task (toNonEmpty target) slist action
-propagate name env targets action = mconcat $ map (`depends` propagator) targets where
-    propagator = mkPropagator name env action
+propagateG :: (NodeList a, EnvTransform p) => String -> a -> p -> RuleSet vars
+propagateG name targets action = mconcat $ map (`depends` propagator) (toList targets) where
+    propagator = mkPropagator name action
+
+propagate :: (NodeList a, Typeable vars) => String -> a -> (Environment vars -> Environment vars) -> RuleSet vars
+propagate = propagateG
