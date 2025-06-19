@@ -17,6 +17,7 @@ import Data.Foldable ( Foldable(toList), concat )
 
 import Node ( Node(ValueNode, FsNode) )
 import GHC.IO.Exception (ExitCode(..))
+import Control.Monad.IO.Class (MonadIO, liftIO)
 
 {-# NOINLINE encodeArg #-}
 encodeArg = unsafePerformIO . encodeFS
@@ -81,3 +82,7 @@ spawnCmdPrint cmdline = do
 
 success (Exited ExitSuccess) = True
 success _ = False
+
+
+execute :: MonadIO m => CmdLine -> m Bool
+execute = fmap success . liftIO . spawnCmdPrint

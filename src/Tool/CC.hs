@@ -4,7 +4,7 @@ module Tool.CC where
 
 import Builder
 import CmdLine
-import Taskmaster
+import Taskmaster ( getenv )
 import Environment
 import Node
 import DepGraph
@@ -29,10 +29,10 @@ compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
 compile target source = command target source do
     env <- getenv
     let cc = eLookup @"cc.com" env
-    fmap success $ liftIO $ spawnCmdPrint $ Cmd cc :$ Compile :$ Output target :$ source
+    execute $ Cmd cc :$ Compile :$ Output target :$ source
 
 link :: (UseEnv ToolVars vars, Argument s, NodeList s) => Node -> s -> RuleSet vars
 link target sources = command target sources do
     env <- getenv
     let ld = eLookup @"cc.linkcom" env
-    fmap success $ liftIO $ spawnCmdPrint $ Cmd ld :$ Output target :$ sources
+    execute $ Cmd ld :$ Output target :$ sources
