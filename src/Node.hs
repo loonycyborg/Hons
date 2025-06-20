@@ -13,8 +13,8 @@ import Data.Typeable
 import Data.List.NonEmpty (NonEmpty ((:|)), fromList)
 import Data.Foldable1 (Foldable1 (foldMap1))
 import qualified Data.List.NonEmpty as NE
+import Control.Monad (when)
 import Environment
-import Debug.Trace (trace)
 
 data Node where
     FsNode :: { path :: OsPath } -> Node
@@ -63,7 +63,10 @@ instance NodeListNonEmpty Node where
 instance Foldable1 f => NodeListNonEmpty (f Node) where
     toNonEmpty = foldMap1 (:|[])
 
-encodeFilename = unsafePerformIO . encodeFS
+encodeFilename fn = do
+    let p = unsafePerformIO $ encodeFS fn
+    when (not $ isValid p) (fail $ "Invalid file path: " ++ show p)
+    return p
 
 {-# NOINLINE baseDir #-}
 baseDir :: OsPath
@@ -80,8 +83,8 @@ mkPropagator name tr = ValueNode name name tr
 fs :: QuasiQuoter
 fs = QuasiQuoter {
     quoteExp = \x -> do
-        let file' = mkFsNode . encodeFilename $ x
-        lift file',
+        file' <- encodeFilename x
+        lift $ mkFsNode file',
     quotePat = \_ -> fail "filelist quasiquoter doesn't support use as pattern",
     quoteType = \_ -> fail "filelist quasiquoter doesn't support use as type",
     quoteDec = \_ -> fail "filelist quasiquoter doesn't support use as declaration"
@@ -90,8 +93,12 @@ fs = QuasiQuoter {
 filelist :: QuasiQuoter
 filelist = QuasiQuoter {
     quoteExp = \x -> do
-        let filelist' = NE.map (mkFsNode . encodeFilename) (fromList . words $ x)
-        lift filelist',
+        filelist' <- mapM encodeFilename (words x)
+        if null filelist' then
+            lift ([] :: [Node])
+        else
+            let files = fromList filelist' in
+            lift $ NE.map mkFsNode files,
     quotePat = \_ -> fail "filelist quasiquoter doesn't support use as pattern",
     quoteType = \_ -> fail "filelist quasiquoter doesn't support use as type",
     quoteDec = \_ -> fail "filelist quasiquoter doesn't support use as declaration"
