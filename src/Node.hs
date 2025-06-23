@@ -15,6 +15,7 @@ import Data.Foldable1 (Foldable1 (foldMap1))
 import qualified Data.List.NonEmpty as NE
 import Control.Monad (when)
 import Environment
+import Control.Monad.IO.Class
 
 data Node where
     FsNode :: { path :: OsPath } -> Node
@@ -63,8 +64,9 @@ instance NodeListNonEmpty Node where
 instance Foldable1 f => NodeListNonEmpty (f Node) where
     toNonEmpty = foldMap1 (:|[])
 
+encodeFilename :: (MonadIO m, MonadFail m) => FilePath -> m OsPath
 encodeFilename fn = do
-    let p = unsafePerformIO $ encodeFS fn
+    p <- liftIO $ encodeFS fn
     when (not $ isValid p) (fail $ "Invalid file path: " ++ show p)
     return p
 
