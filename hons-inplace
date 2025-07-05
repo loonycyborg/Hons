@@ -1,3 +1,0 @@
-#!/bin/bash
-
-cabal install exe:hons --package-env ./henv --lib --force-reinstalls

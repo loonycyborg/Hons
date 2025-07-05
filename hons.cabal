@@ -47,8 +47,10 @@ executable hons
   build-depends:
     algebraic-graphs >=0.7,
     base,
+    directory,
     filepath >=1.5.0.0 && <2.0.0.0,
     ghc,
+    ghc-boot,
     ghc-boot-th,
     ghc-paths,
     hons,
