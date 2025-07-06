@@ -7,6 +7,7 @@ import GHC.Driver.DynFlags
 import GHC.Data.EnumSet
 import GHC.LanguageExtensions.Type
 import GHC.Version
+import Distribution.Client.Config
 import Control.Monad.IO.Class
 import Data.Time.Clock
 import Type.Reflection
@@ -22,12 +23,16 @@ import Node
 import DepGraph
 import Taskmaster
 
-inplaceDbPath exe = dbPath $ break (==[osp|dist-newstyle|]) $ splitDirectories exe
+inplaceDbPath userStore exe = dbPath $ break (==[osp|dist-newstyle|]) $ splitDirectories exe
   where
-  dbPath (_,[]) = Nothing
-  dbPath (ps, _) = justDecode $ foldr1 (</>) ps <> [osp|/dist-newstyle/packagedb/ghc-|] <> ghcVersionSuffix
+  dbPath (_,[]) = []
+  dbPath (ps, _) = fmap decode
+    [ foldr1 (</>) ps <> [osp|/dist-newstyle/packagedb/ghc-|] <> ghcVersionSuffix
+    , encode userStore </> [osp|ghc-|] <> ghcVersionSuffix <> [osp|-inplace/package.db|]
+    ]
     where
-    justDecode p = Just $ unsafePerformIO $ decodeFS p
+    decode = unsafePerformIO . decodeFS
+    encode = unsafePerformIO . encodeFS
     ghcVersionSuffix = unsafePerformIO $ encodeFS cProjectVersion
 
 pPrint :: (Show a, MonadIO m) => a -> m ()
@@ -37,12 +42,13 @@ hons_epilogue = stringToStringBuffer "\nproject :: Project"
 main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
     runGhc (Just libdir) do
         dflags <- getSessionDynFlags
-        dbPath <- fmap inplaceDbPath $ liftIO $ getSymbolicLinkTarget [osp|/proc/self/exe|]
+        userStore <- liftIO defaultStoreDir
+        dbPath <- fmap (inplaceDbPath userStore) $ liftIO $ getSymbolicLinkTarget [osp|/proc/self/exe|]
         setSessionDynFlags dflags
             { backend   = interpreterBackend
             , ghcLink   = LinkInMemory
             , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments ] `difference` (fromList [FieldSelectors])
-            , packageDBFlags = maybe [] ((:[]) . PackageDB . PkgDbPath) dbPath }
+            , packageDBFlags = map (PackageDB . PkgDbPath) dbPath }
         let script_file = "Honstruct"
         src <- liftIO do
             src <- hGetStringBuffer script_file

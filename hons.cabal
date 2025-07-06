@@ -53,6 +53,7 @@ executable hons
     ghc-boot,
     ghc-boot-th,
     ghc-paths,
+    cabal-install,
     hons,
     text-short,
     time,
