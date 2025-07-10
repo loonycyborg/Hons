@@ -1,0 +1,4 @@
+packages:
+    hons.cabal
+
+write-ghc-environment-files: always

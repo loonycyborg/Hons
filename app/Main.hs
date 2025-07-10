@@ -7,13 +7,15 @@ import GHC.Driver.DynFlags
 import GHC.Data.EnumSet
 import GHC.LanguageExtensions.Type
 import GHC.Version
-import Distribution.Client.Config
+import GHC.Platform.Host
+import GHC.Platform.ArchOS
 import Control.Monad.IO.Class
 import Data.Time.Clock
 import Type.Reflection
 import Unsafe.Coerce
-import System.Directory.OsPath
-import System.OsPath
+import System.Directory
+import System.FilePath
+import Data.List
 import System.IO.Unsafe (unsafePerformIO)
 
 import Algebra.Graph.Export.Dot (exportViaShow)
@@ -23,17 +25,17 @@ import Node
 import DepGraph
 import Taskmaster
 
-inplaceDbPath userStore exe = dbPath $ break (==[osp|dist-newstyle|]) $ splitDirectories exe
-  where
-  dbPath (_,[]) = []
-  dbPath (ps, _) = fmap decode
-    [ foldr1 (</>) ps <> [osp|/dist-newstyle/packagedb/ghc-|] <> ghcVersionSuffix
-    , encode userStore </> [osp|ghc-|] <> ghcVersionSuffix <> [osp|-inplace/package.db|]
-    ]
+envFName = ".ghc.environment." <> intercalate "-" [arch, os, cProjectVersion]
     where
-    decode = unsafePerformIO . decodeFS
-    encode = unsafePerformIO . encodeFS
-    ghcVersionSuffix = unsafePerformIO $ encodeFS cProjectVersion
+        arch = stringEncodeArch hostPlatformArch
+        os = stringEncodeOS hostPlatformOS
+
+findEnv :: MonadIO m => m (Maybe FilePath)
+findEnv = liftIO do
+    exe <- getSymbolicLinkTarget "/proc/self/exe"
+    case break (=="dist-newstyle") $ splitDirectories exe of
+        (path, _:_) -> return $ Just $ (foldr1 (</>) path) </> envFName
+        (_, []) -> return Nothing
 
 pPrint :: (Show a, MonadIO m) => a -> m ()
 pPrint = liftIO . print
@@ -41,14 +43,16 @@ hons_prelude = stringToStringBuffer "module Honstruct (project) where\nimport Pr
 hons_epilogue = stringToStringBuffer "\nproject :: Project"
 main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
     runGhc (Just libdir) do
+        logger <- getLogger
+        env <- findEnv
         dflags <- getSessionDynFlags
-        userStore <- liftIO defaultStoreDir
-        dbPath <- fmap (inplaceDbPath userStore) $ liftIO $ getSymbolicLinkTarget [osp|/proc/self/exe|]
-        setSessionDynFlags dflags
+        let act = maybe return (const $ interpretPackageEnv logger) env
+        dflags <- liftIO $ act dflags
             { backend   = interpreterBackend
             , ghcLink   = LinkInMemory
             , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments ] `difference` (fromList [FieldSelectors])
-            , packageDBFlags = map (PackageDB . PkgDbPath) dbPath }
+            , packageEnv = env }
+        setSessionDynFlags dflags
         let script_file = "Honstruct"
         src <- liftIO do
             src <- hGetStringBuffer script_file
