@@ -15,6 +15,7 @@ import Type.Reflection
 import Unsafe.Coerce
 import System.Directory
 import System.FilePath
+import System.Environment
 import Data.List
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -32,10 +33,12 @@ envFName = ".ghc.environment." <> intercalate "-" [arch, os, cProjectVersion]
 
 findEnv :: MonadIO m => m (Maybe FilePath)
 findEnv = liftIO do
-    exe <- getSymbolicLinkTarget "/proc/self/exe"
-    case break (=="dist-newstyle") $ splitDirectories exe of
-        (path, _:_) -> return $ Just $ (foldr1 (</>) path) </> envFName
-        (_, []) -> return Nothing
+    file <- maybe (return Nothing) id executablePath
+    return do
+        exe <- file
+        case break (=="dist-newstyle") $ splitDirectories exe of
+            (path, _:_) -> Just $ (foldr1 (</>) path) </> envFName
+            (_, []) -> Nothing
 
 pPrint :: (Show a, MonadIO m) => a -> m ()
 pPrint = liftIO . print
