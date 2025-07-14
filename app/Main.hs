@@ -9,6 +9,7 @@ import GHC.LanguageExtensions.Type
 import GHC.Version
 import GHC.Platform.Host
 import GHC.Platform.ArchOS
+import Control.Monad
 import Control.Monad.IO.Class
 import Data.Time.Clock
 import Type.Reflection
@@ -33,7 +34,7 @@ envFName = ".ghc.environment." <> intercalate "-" [arch, os, cProjectVersion]
 
 findEnv :: MonadIO m => m (Maybe FilePath)
 findEnv = liftIO do
-    file <- maybe (return Nothing) id executablePath
+    file <- fmap join $ sequence executablePath
     return do
         exe <- file
         case break (=="dist-newstyle") $ splitDirectories exe of
