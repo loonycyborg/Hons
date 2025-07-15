@@ -1,0 +1,17 @@
+on: [push]
+name: build
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        ghc: ['9.10', '9.12']
+        os: [ubuntu-latest, macOS-latest]
+    name: GHC ${{ matrix.ghc }} build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ matrix.ghc }}
+      - run: cabal run hons
