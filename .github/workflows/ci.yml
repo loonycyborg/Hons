@@ -7,7 +7,7 @@ jobs:
       matrix:
         ghc: ['9.10', '9.12']
         os: [ubuntu-latest, macOS-latest]
-    name: GHC ${{ matrix.ghc }} build
+    name: GHC ${{ matrix.ghc }} on ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup Haskell
