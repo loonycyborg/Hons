@@ -4,7 +4,7 @@ module Tool.CC where
 
 import Builder
 import CmdLine
-import Taskmaster ( getenv )
+import Action
 import Environment
 import Node
 import DepGraph

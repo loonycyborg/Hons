@@ -1,32 +1,16 @@
 {-# LANGUAGE OverloadedRecordDot #-}
-module Taskmaster (module Taskmaster, liftIO) where
+module Taskmaster where
 import qualified Data.HashSet as HS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as S
 import qualified Data.List.NonEmpty as L
-import Control.Monad.Trans.State.Strict
-import Control.Monad.Trans.Reader
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 import Type.Reflection
 import Algebra.Graph.AdjacencyMap
 
+import Action
 import Node
 import Environment
 import Data.Maybe (mapMaybe, fromJust, isJust, isNothing)
-
-type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
-type Action vars = (ActionM vars) Bool
-
-data Task vars where
-    Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars } -> Task vars
-
-instance Eq (Task vars) where
-    (==) :: Task vars -> Task vars -> Bool
-    (==) t1 t2 = L.head t1.targets == L.head t2.targets
-
-instance Show (Task vars) where
-    show (Task targets _ _) = "[[[" ++ (show . L.head $ targets) ++ "]]]"
 
 data ExecutionContext vars where
     Pending :: { target :: Node, task :: Maybe (Task vars) } -> ExecutionContext vars
@@ -46,15 +30,6 @@ classifyCtx = foldr classifyContext ([], [], []) where
 executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
 executeTask env task@(Task targets sources action) =
     runReaderT (runStateT action env) task
-
-gett :: ActionM vars (Task vars)
-gett = lift ask
-getenv :: ActionM vars (Environment vars)
-getenv = get
-putenv :: Environment vars -> ActionM vars ()
-putenv = put
-modenv :: (Environment vars -> Environment vars) -> ActionM vars ()
-modenv = modify
 
 transformWithNode :: Typeable vars => Node -> Environment vars -> Environment vars
 transformWithNode (ValueNode _ _ tr) = eTransform tr

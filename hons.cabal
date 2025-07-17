@@ -11,6 +11,7 @@ category: Development
 
 library
   exposed-modules:
+    Action
     Builder
     CmdLine
     DepGraph

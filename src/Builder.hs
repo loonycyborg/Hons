@@ -4,7 +4,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.List.NonEmpty (NonEmpty, fromList)
 import DepGraph
 import Node
-import Taskmaster
+import Action
 import qualified Algebra.Graph
 import Algebra.Graph.ToGraph (ToGraph (toAdjacencyMap, ToVertex, vertexList))
 import Environment

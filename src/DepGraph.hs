@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 module DepGraph where
 import Node ( Node )
-import Taskmaster (Task(Task))
+import Action (Task(Task))
 import Algebra.Graph.AdjacencyMap
     ( connect, overlay, overlays, vertex, vertices, AdjacencyMap, induce, empty, postSet )
 import qualified Data.Set as Set

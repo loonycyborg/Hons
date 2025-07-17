@@ -43,7 +43,7 @@ findEnv = liftIO do
 
 pPrint :: (Show a, MonadIO m) => a -> m ()
 pPrint = liftIO . print
-hons_prelude = stringToStringBuffer "module Honstruct (project) where\nimport Project\n{-# LINE 1 \"Honstruct\" #-}\n"
+hons_prelude = stringToStringBuffer "module Honstruct (project) where\nimport Hons\nimport qualified Tool.CC as CC\n{-# LINE 1 \"Honstruct\" #-}\n"
 hons_epilogue = stringToStringBuffer "\nproject :: Project"
 main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
     runGhc (Just libdir) do
