@@ -44,7 +44,7 @@ findEnv = liftIO do
 pPrint :: (Show a, MonadIO m) => a -> m ()
 pPrint = liftIO . print
 hons_prelude = stringToStringBuffer "module Honstruct (project) where\nimport Hons\nimport qualified Tool.CC as CC\n{-# LINE 1 \"Honstruct\" #-}\n"
-hons_epilogue = stringToStringBuffer "\nproject :: Project"
+hons_epilogue = stringToStringBuffer "\nproject :: Project\nproject = Project (makeEnv env) rules"
 main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
     runGhc (Just libdir) do
         logger <- getLogger

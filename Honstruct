@@ -1,13 +1,11 @@
 import qualified Data.List.NonEmpty as NE
 import Data.Foldable (Foldable(fold))
 
-envp =
+env =
   CC.toolEnv                                    +:
   envVar @"jobs"       (0 :: Int)              :+:
   envVar @"switch"     (Nothing :: Maybe Bool) :+:
   EnvNihil
-
-env = makeEnv envp
 
 targets = [filelist|prog|]
 sources = [filelist|src1.c src2.c|]
@@ -40,5 +38,3 @@ o = CC.compile [fs|example/hello.o|] [fs|example/hello.c|]
 prog = CC.link [fs|example/hello|] [fs|example/hello.o|]
 
 rules = o <> prog <> prule <> r
-
-project = Project env rules
