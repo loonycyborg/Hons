@@ -82,6 +82,11 @@ decideNode context node = do
             Just ni -> updateNodeInfo context.conn ni                     (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
     return changed
 
+needsRebuild :: Node -> IO Bool
+needsRebuild (FsNode path) = do
+    fmap not $ fileExist $ toPosix path
+needsRebuild (ValueNode {}) = return False
+
 buildNewMetadata :: Node -> IO MetaData
 buildNewMetadata (FsNode path) = do
     exists <- fileExist $ toPosix path

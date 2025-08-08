@@ -81,11 +81,12 @@ execute decider deps = mapM execute_context where
         run_context <- case src_context of
             Ready target env ready_task -> do
                 let sources_changed = mconcat $ fmap ((.changed) . (ctx HM.!)) $ toList $ postSet target deps
-                case sources_changed of
-                    Changed -> do
+                needs_rebuild <- liftIO $ needsRebuild target
+                case (sources_changed, needs_rebuild) of
+                    (Unchanged, False) -> return $ Done src_context.target env Unchanged
+                    otherwise -> do
                         (result, result_env) <- liftIO $ executeTask env ready_task
                         return if result then Done src_context.target result_env Undecided else Failed src_context.target
-                    Unchanged -> return $ Done src_context.target env Unchanged
             _ -> return src_context
         changed <- liftIO $ decideNode decider context.target
         let result_context = run_context { changed = changed }
