@@ -14,6 +14,8 @@ library
     Action
     Builder
     CmdLine
+    Db
+    Decider
     DepGraph
     Environment
     Hons
@@ -25,14 +27,21 @@ library
   build-depends:
     algebraic-graphs >=0.7,
     base,
+    bytestring,
     containers,
     directory,
     filepath >=1.5.0.0 && <2.0.0.0,
     hashable,
     os-string,
+    beam-core,
+    beam-sqlite,
+    beam-migrate,
+    sqlite-simple,
     tagged,
     template-haskell,
     text-short,
+    text,
+    time,
     transformers,
     unix >=2.8.5.1,
     unordered-containers,

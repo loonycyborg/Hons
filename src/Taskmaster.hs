@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedRecordDot, BlockArguments #-}
 module Taskmaster where
 import qualified Data.HashSet as HS
 import qualified Data.HashMap.Strict as HM
@@ -10,12 +10,13 @@ import Algebra.Graph.AdjacencyMap
 import Action
 import Node
 import Environment
+import Decider
 import Data.Maybe (mapMaybe, fromJust, isJust, isNothing)
 
 data ExecutionContext vars where
     Pending :: { target :: Node, task :: Maybe (Task vars) } -> ExecutionContext vars
     Ready   :: { target :: Node, env :: Environment vars, ready_task :: Task vars } -> ExecutionContext vars
-    Done    :: { target :: Node, env :: Environment vars } -> ExecutionContext vars
+    Done    :: { target :: Node, env :: Environment vars, changed :: Ruling } -> ExecutionContext vars
     Failed  :: { target :: Node } -> ExecutionContext vars
     deriving Show
 
@@ -35,8 +36,9 @@ transformWithNode :: Typeable vars => Node -> Environment vars -> Environment va
 transformWithNode (ValueNode _ _ tr) = eTransform tr
 transformWithNode (FsNode _) = eTransform EIdentity
 
+contextList :: Typeable vars => AdjacencyMap Node -> Environment vars -> L.NonEmpty (Node, Maybe (Task vars)) -> L.NonEmpty (ExecutionContext vars)
 contextList deps env = L.map mkCtx where
-    mkCtx (node, Nothing) = if isLeaf then Done node (transformWithNode node env) else Pending node Nothing where
+    mkCtx (node, Nothing) = if isLeaf then Done node (transformWithNode node env) Undecided else Pending node Nothing where
         isLeaf = null $ postSet node deps
     mkCtx (node, Just task) = Pending node (Just task)
 
@@ -60,31 +62,35 @@ transformContext deps ctx context =
         src_context
           | not src_complete = Pending context.target context.task
           | not $ null src_failed = Failed context.target
-          | null src_unbuilt = Done context.target source_env
+          | null src_unbuilt = Done context.target source_env Undecided
           | otherwise = Pending context.target context.task
     in
         case (src_context, context) of
             (_, Failed target) -> Failed target
             (Failed {}, _) -> src_context
             (Pending {}, _) -> src_context
-            (Done _ env, Pending target (Just ready_task)) -> Ready target env ready_task
-            (Done _ env, Pending target Nothing) -> Done target (transformWithNode target env)
+            (Done _ env _, Pending target (Just ready_task)) -> Ready target env ready_task
+            (Done _ env _, Pending target Nothing) -> Done target (transformWithNode target env) Undecided
             _ -> context
 
-execute :: (Typeable vars) => AdjacencyMap Node -> ContextList vars -> StateT (Contexts vars) IO (ContextList vars)
-execute deps = mapM execute_context where
+execute :: (Typeable vars) => DeciderContext -> AdjacencyMap Node -> ContextList vars -> StateT (Contexts vars) IO (ContextList vars)
+execute decider deps = mapM execute_context where
     execute_context context = do
         ctx <- get
         let src_context = transformContext deps ctx context
-        case src_context of
+        run_context <- case src_context of
             Ready target env ready_task -> do
-                (result, result_env) <- liftIO $ executeTask env ready_task
-                let result_context = if result then Done src_context.target result_env else Failed src_context.target
-                modify $ HM.insert src_context.target result_context
-                return result_context
-            _ -> do
-                modify $ HM.insert src_context.target src_context
-                return src_context
+                let sources_changed = mconcat $ fmap ((.changed) . (ctx HM.!)) $ toList $ postSet target deps
+                case sources_changed of
+                    Changed -> do
+                        (result, result_env) <- liftIO $ executeTask env ready_task
+                        return if result then Done src_context.target result_env Undecided else Failed src_context.target
+                    Unchanged -> return $ Done src_context.target env Unchanged
+            _ -> return src_context
+        changed <- liftIO $ decideNode decider context.target
+        let result_context = run_context { changed = changed }
+        modify $ HM.insert result_context.target result_context
+        return result_context
 
 build :: Typeable vars => AdjacencyMap Node -> Environment vars -> L.NonEmpty (Node, Maybe (Task vars)) -> IO (ContextList vars, Contexts vars)
-build deps env nodes = runStateT (execute deps $ contextList deps env nodes) HM.empty
+build deps env nodes = withDeciderContext "honsign.sqlite" \decider -> runStateT (execute decider deps $ contextList deps env nodes) HM.empty
