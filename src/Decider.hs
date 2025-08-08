@@ -14,7 +14,6 @@ import System.OsString ( coercionToPlatformTypes )
 import System.Posix.Files.PosixString
 import Data.Time.Clock (nominalDiffTimeToSeconds)
 import Data.Time.Clock.POSIX
-import System.IO.Unsafe (unsafePerformIO)
 
 import Node
 import Db
@@ -82,9 +81,6 @@ decideNode context node = do
             Nothing -> initNodeInfo   context.conn (dbTypeName node) name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
             Just ni -> updateNodeInfo context.conn ni                     (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
     return changed
-
-decideNodePure :: DeciderContext -> Node -> Ruling
-decideNodePure decider node = unsafePerformIO $ decideNode decider node
 
 buildNewMetadata :: Node -> IO MetaData
 buildNewMetadata (FsNode path) = do

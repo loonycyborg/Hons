@@ -16,14 +16,12 @@ import Control.Monad.IO.Class  (liftIO)
 import Database.Beam.Sqlite
 import Database.Beam
 import Database.Beam.Migrate
-import Database.Beam.Migrate.Backend
 import Database.Beam.Migrate.Simple
 import Database.Beam.Sqlite.Migrate
 import Database.SQLite.Simple
 import Database.SQLite.Simple.QQ
 import Language.Haskell.TH (Extension(DeriveAnyClass))
 import Data.Int (Int32, Int64)
-import Database.Beam.Backend.SQL.Types
 import qualified Data.Text as T
 import System.Directory (removeFile, doesFileExist)
 import Control.Monad (when)
