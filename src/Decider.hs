@@ -49,10 +49,11 @@ dbTypeName :: Node -> T.Text
 dbTypeName (FsNode {})    = T.pack "fs"
 dbTypeName (ValueNode {}) = T.pack "value"
 
-data Ruling = Unchanged | Changed | Undecided deriving (Show, Eq, Enum)
+data Ruling = Unchanged | Changed deriving (Show, Eq)
 
 instance Semigroup Ruling where
-    x <> y = if fromEnum x > fromEnum y then x else y
+    Changed   <> _ = Changed
+    Unchanged <> x = x
 
 instance Monoid Ruling where
     mempty = Unchanged

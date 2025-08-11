@@ -76,7 +76,6 @@ do_build (Project e r) = do
     let t = r.tasks
     writeFile "graph.dot" (exportViaShow g)
     print t
-    let order = buildOrder r [fs|example/hello|]
-    print order
-    result <- build g e order
-    print result
+    let goal = [fs|example/hello|]
+    context <- buildF r e goal
+    print context
