@@ -77,5 +77,5 @@ do_build (Project e r) = do
     writeFile "graph.dot" (exportViaShow g)
     print t
     let goal = [fs|example/hello|]
-    context <- buildF r e goal
+    context <- build r e goal
     print context

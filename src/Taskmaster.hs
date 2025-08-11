@@ -15,14 +15,14 @@ import Decider
 import DepGraph
 import Data.Maybe (mapMaybe, fromJust, isJust, isNothing)
 
-data ExecutionContext vars where
-    Done    :: { target :: Node, env :: Environment vars, changed :: Ruling } -> ExecutionContext vars
-    Failed  :: { target :: Node } -> ExecutionContext vars
+data TaskStatus vars where
+    Done    :: { target :: Node, env :: Environment vars, changed :: Ruling } -> TaskStatus vars
+    Failed  :: { target :: Node } -> TaskStatus vars
     deriving Show
 
-classifyCtx :: Foldable t => t (ExecutionContext vars) -> ([ExecutionContext vars], [ExecutionContext vars])
-classifyCtx = foldr classifyContext ([], []) where
-    classifyContext c (lDone, lFailed) =
+classifyStatuses :: Foldable t => t (TaskStatus vars) -> ([TaskStatus vars], [TaskStatus vars])
+classifyStatuses = foldr classifyStatus ([], []) where
+    classifyStatus c (lDone, lFailed) =
         case c of
             Done {}   -> (c:lDone,   lFailed)
             Failed {} -> (  lDone, c:lFailed)
@@ -35,8 +35,8 @@ transformWithNode :: Typeable vars => Node -> Environment vars -> Environment va
 transformWithNode (ValueNode _ _ tr) = eTransform tr
 transformWithNode (FsNode _) = eTransform EIdentity
 
-buildF :: Typeable vars => RuleSet vars -> Environment vars -> Node -> IO (ExecutionContext vars)
-buildF ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
+build :: Typeable vars => RuleSet vars -> Environment vars -> Node -> IO (TaskStatus vars)
+build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
         depthFirstFold (\l n -> n:l) (buildNode decider) ruleset.graph goal [] where
     buildNode decider xs       _    _ ((b:_):bs) = fail $ "Dependency cycle detected: " ++ (show $ b : (reverse $ b : takeWhile (/=b) xs))
     buildNode decider (node:_) srcs _ []         = do
@@ -46,7 +46,7 @@ buildF ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
                     fail $ "Invalid task without sources for target " ++ show node
                 return $ Just (transformWithNode node env)
             (_, task) -> do
-                (done, failed) <- fmap classifyCtx $ sequence srcs
+                (done, failed) <- fmap classifyStatuses $ sequence srcs
                 if not $ null failed then
                     return Nothing
                 else do
