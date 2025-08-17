@@ -11,9 +11,12 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B
 import System.OsPath
 import System.OsString ( coercionToPlatformTypes )
+import System.File.OsPath ( readFile' )
 import System.Posix.Files.PosixString
 import Data.Time.Clock (nominalDiffTimeToSeconds)
 import Data.Time.Clock.POSIX
+import Crypto.Hash.MD5
+import System.IO.Unsafe
 
 import Node
 import Db
@@ -28,6 +31,12 @@ data MetaData where
     Nonexistent :: {} -> MetaData
     deriving (Eq, Show)
 
+nodeChanged :: MetaData -> MetaData -> Ruling
+MetaData t1 s1 `nodeChanged` MetaData t2 s2 | t1 == t2 || s1 == s2 = Unchanged
+ValMetaData s1 `nodeChanged` ValMetaData s2 | s1 == s2             = Unchanged
+Nonexistent    `nodeChanged` Nonexistent                           = Unchanged
+_              `nodeChanged` _                                     = Changed
+
 dbExists :: MetaData -> Bool
 dbExists Nonexistent = False
 dbExists _           = True
@@ -35,6 +44,10 @@ dbExists _           = True
 dbTimestamp :: MetaData -> Int64
 dbTimestamp (MetaData ts _) = ts
 dbTimestamp _               = 0
+
+timestampMatch :: MetaData -> MetaData -> Bool
+timestampMatch (MetaData t1 _) (MetaData t2 _) | t1 == t2 = True
+timestampMatch _               _                          = False
 
 dbSignature :: MetaData -> B.ByteString
 dbSignature Nonexistent = B.empty
@@ -48,6 +61,12 @@ withDeciderContext dbFile = bracket
 dbTypeName :: Node -> T.Text
 dbTypeName (FsNode {})    = T.pack "fs"
 dbTypeName (ValueNode {}) = T.pack "value"
+
+fromDb :: Nodes -> MetaData
+fromDb (Nodes _ _ _ nodeType name existed timestamp signature _ _)
+    | nodeType == T.pack "value" = ValMetaData signature
+    | existed == False           = Nonexistent
+    | otherwise                  = MetaData timestamp signature
 
 data Ruling = Unchanged | Changed deriving (Show, Eq)
 
@@ -64,20 +83,10 @@ decideNode context node = do
                 ValueNode name _ _ -> return $ T.pack name
                 FsNode path        -> fmap T.pack $ decodeFS path
     prevNode <- getNodeInfo context.conn (dbTypeName node) name
-    let prevMetaData = case prevNode of
-            Just (Nodes _ _ _ nodeType name existed timestamp signature _ _) ->
-                if existed then
-                    if nodeType == T.pack "value" then
-                        ValMetaData signature
-                    else
-                        MetaData timestamp signature
-                else Nonexistent
-            Nothing -> Nonexistent
+    let prevMetaData = fromDb <$> prevNode
     newMetadata <- buildNewMetadata node
-    let changed = case isNothing prevNode || (prevMetaData /= newMetadata) of
-            True  -> Changed
-            False -> Unchanged
-    when (changed == Changed) do
+    let changed = fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
+    unless (or $ timestampMatch <$> prevMetaData <*> Just newMetadata) do
         case prevNode of
             Nothing -> initNodeInfo   context.conn (dbTypeName node) name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
             Just ni -> updateNodeInfo context.conn ni                     (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
@@ -91,11 +100,13 @@ needsRebuild (ValueNode {}) = return False
 buildNewMetadata :: Node -> IO MetaData
 buildNewMetadata (FsNode path) = do
     exists <- fileExist $ toPosix path
-    if exists then do
-        fStatus <- getFileStatus $ toPosix path
-        return $ MetaData (mkTimestamp $ modificationTimeHiRes fStatus) B.empty
-    else
-        return Nonexistent
+    case exists of
+        True -> do
+            fStatus <- getFileStatus $ toPosix path
+            signature <- unsafeInterleaveIO do
+                hash <$> readFile' path
+            return $ MetaData (mkTimestamp $ modificationTimeHiRes fStatus) signature
+        False -> return Nonexistent
 buildNewMetadata (ValueNode {}) = return $ ValMetaData B.empty
 
 toPosix path = case coercionToPlatformTypes of
