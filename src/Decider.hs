@@ -58,9 +58,11 @@ withDeciderContext dbFile = bracket
     do fmap DeciderContext $ openDb dbFile
     do close . (.conn)
 
-dbTypeName :: Node -> T.Text
-dbTypeName (FsNode {})    = T.pack "fs"
-dbTypeName (ValueNode {}) = T.pack "value"
+dbName :: Node -> IO (T.Text, T.Text)
+dbName (FsNode path)        = do
+                                p <- decodeFS path
+                                pure (T.pack "fs", T.pack p)
+dbName (ValueNode name _ _) =   pure (T.pack "value", T.pack name)
 
 fromDb :: Nodes -> MetaData
 fromDb (Nodes _ _ _ nodeType name existed timestamp signature _ _)
@@ -79,17 +81,15 @@ instance Monoid Ruling where
 
 decideNode :: DeciderContext -> Node -> IO Ruling
 decideNode context node = do
-    name <- case node of 
-                ValueNode name _ _ -> return $ T.pack name
-                FsNode path        -> fmap T.pack $ decodeFS path
-    prevNode <- getNodeInfo context.conn (dbTypeName node) name
+    (name, dbtype) <- dbName node
+    prevNode <- getNodeInfo context.conn dbtype name
     let prevMetaData = fromDb <$> prevNode
     newMetadata <- buildNewMetadata node
     let changed = fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
     unless (or $ timestampMatch <$> prevMetaData <*> Just newMetadata) do
         case prevNode of
-            Nothing -> initNodeInfo   context.conn (dbTypeName node) name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
-            Just ni -> updateNodeInfo context.conn ni                     (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
+            Nothing -> initNodeInfo   context.conn dbtype name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
+            Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
     return changed
 
 needsRebuild :: Node -> IO Bool
