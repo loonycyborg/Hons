@@ -81,7 +81,7 @@ instance Monoid Ruling where
 
 decideNode :: DeciderContext -> Node -> IO Ruling
 decideNode context node = do
-    (name, dbtype) <- dbName node
+    (dbtype, name) <- dbName node
     prevNode <- getNodeInfo context.conn dbtype name
     let prevMetaData = fromDb <$> prevNode
     newMetadata <- buildNewMetadata node
