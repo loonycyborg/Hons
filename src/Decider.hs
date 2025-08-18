@@ -37,6 +37,12 @@ ValMetaData s1 `nodeChanged` ValMetaData s2 | s1 == s2             = Unchanged
 Nonexistent    `nodeChanged` Nonexistent                           = Unchanged
 _              `nodeChanged` _                                     = Changed
 
+skipsDbUpdate :: MetaData -> MetaData -> Bool
+skipsDbUpdate (MetaData t1 _)  (MetaData t2 _)  | t1 == t2 = True
+skipsDbUpdate (ValMetaData s1) (ValMetaData s2) | s1 == s2 = True
+skipsDbUpdate Nonexistent      Nonexistent                 = True
+skipsDbUpdate _                _                           = False
+
 dbExists :: MetaData -> Bool
 dbExists Nonexistent = False
 dbExists _           = True
@@ -44,10 +50,6 @@ dbExists _           = True
 dbTimestamp :: MetaData -> Int64
 dbTimestamp (MetaData ts _) = ts
 dbTimestamp _               = 0
-
-timestampMatch :: MetaData -> MetaData -> Bool
-timestampMatch (MetaData t1 _) (MetaData t2 _) | t1 == t2 = True
-timestampMatch _               _                          = False
 
 dbSignature :: MetaData -> B.ByteString
 dbSignature Nonexistent = B.empty
@@ -86,7 +88,7 @@ decideNode context node = do
     let prevMetaData = fromDb <$> prevNode
     newMetadata <- buildNewMetadata node
     let changed = fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
-    unless (or $ timestampMatch <$> prevMetaData <*> Just newMetadata) do
+    unless (or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata) do
         case prevNode of
             Nothing -> initNodeInfo   context.conn dbtype name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
             Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
