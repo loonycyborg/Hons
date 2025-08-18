@@ -9,6 +9,7 @@ import Data.Type.Coercion
 import Database.SQLite.Simple
 import qualified Data.Text as T
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Encoding as BE
 import System.OsPath
 import System.OsString ( coercionToPlatformTypes )
 import System.File.OsPath ( readFile' )
@@ -109,7 +110,7 @@ buildNewMetadata (FsNode path) = do
                 hash <$> readFile' path
             return $ MetaData (mkTimestamp $ modificationTimeHiRes fStatus) signature
         False -> return Nonexistent
-buildNewMetadata (ValueNode {}) = return $ ValMetaData B.empty
+buildNewMetadata (ValueNode _ value _) = return $ ValMetaData $ hash $ BE.encode BE.utf8 $ T.pack value
 
 toPosix path = case coercionToPlatformTypes of
     Right (_, coercion) -> coerceWith coercion path

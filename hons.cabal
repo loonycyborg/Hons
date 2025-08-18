@@ -28,6 +28,7 @@ library
     algebraic-graphs >=0.7,
     base,
     bytestring,
+    bytestring-encoding,
     containers,
     cryptohash-md5,
     directory,
