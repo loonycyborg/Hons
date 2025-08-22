@@ -30,21 +30,21 @@ buildOrder :: RuleSet vars -> Node -> L.NonEmpty (Node, Maybe (Task vars))
 buildOrder ruleset goal = L.reverse $ L.map mkItem $ topologicalSort ruleset.graph goal where
     mkItem n = (n, HM.lookup n ruleset.tasks)
 
-data VertexSearchState = Discovered | Finished deriving (Show, Eq)
-type SearchState a n = HM.HashMap n (VertexSearchState, a)
+data VertexSearchState a = Discovered | Finished a deriving (Show, Eq)
 
-depthFirstFold :: (a1 -> Node -> a1) -> (a1 -> [a2] -> [a1] -> [a1] -> a2) -> DepGraph -> Node -> a1 -> a2
+depthFirstFold :: (a1 -> Node -> a1) -> (a1 -> [a2] -> [a2] -> [a1] -> a2) -> DepGraph -> Node -> a1 -> a2
 depthFirstFold discover_func finish_func graph vertex a1 =
     fst $ go HM.empty vertex (discover_func a1 vertex) where
         go search vertex a1 = finish_vertex $ foldr check_edge (HM.insert vertex (Discovered, a1) search, [], [], []) (postSet vertex graph)
             where
             check_edge target_vertex (search, tree_edges, front_cross_edges, back_edges) = case HM.lookup target_vertex search of
-                Nothing               -> (search',a2:tree_edges,    front_cross_edges,    back_edges) where
+                Nothing                -> (search',a2:tree_edges,    front_cross_edges,    back_edges) where
                     (a2, search') = go search target_vertex (discover_func a1 target_vertex)
-                Just (Discovered, a1) -> (search,    tree_edges,    front_cross_edges, a1:back_edges)
-                Just (Finished, a1)   -> (search,    tree_edges, a1:front_cross_edges,    back_edges)
+                Just (Discovered, a1)  -> (search,    tree_edges,    front_cross_edges, a1:back_edges)
+                Just (Finished a2, a1) -> (search,    tree_edges, a2:front_cross_edges,    back_edges)
             finish_vertex (search, tree_edges, front_cross_edges, back_edges) =
-                (finish_func a1 tree_edges front_cross_edges back_edges, HM.adjust (\(Discovered, x) -> (Finished, x)) vertex search)
+                let a2 = finish_func a1 tree_edges front_cross_edges back_edges in
+                (a2, HM.adjust (\(Discovered, x) -> (Finished a2, x)) vertex search)
 
 topologicalSort :: DepGraph -> Node -> L.NonEmpty Node
 topologicalSort graph vertex = depthFirstFold (\l n -> n:l) topS graph vertex [] where

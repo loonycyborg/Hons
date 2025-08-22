@@ -38,8 +38,9 @@ transformWithNode (FsNode _) = eTransform EIdentity
 build :: Typeable vars => RuleSet vars -> Environment vars -> Node -> IO (TaskStatus vars)
 build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
         depthFirstFold (\l n -> n:l) (buildNode decider) ruleset.graph goal [] where
-    buildNode decider xs       _    _ ((b:_):bs) = fail $ "Dependency cycle detected: " ++ (show $ b : (reverse $ b : takeWhile (/=b) xs))
-    buildNode decider (node:_) srcs _ []         = do
+    buildNode decider xs       _     _     ((b:_):bs) = fail $ "Dependency cycle detected: " ++ (show $ b : (reverse $ b : takeWhile (/=b) xs))
+    buildNode decider (node:_) tsrcs osrcs []         = do
+        let srcs = tsrcs <> osrcs
         status <- case (srcs, node `HM.lookup` ruleset.tasks) of
             ([], task) -> do
                 when (isJust task) do
