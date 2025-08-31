@@ -59,9 +59,9 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         setSessionDynFlags dflags
         let script_file = "Honstruct"
         src <- liftIO do
-            src <- hGetStringBuffer script_file
-            src <- appendStringBuffers hons_prelude src
-            src <- appendStringBuffers src hons_epilogue
+            src <- hGetStringBuffer script_file >>=
+                   appendStringBuffers hons_prelude >>=
+                   flip appendStringBuffers hons_epilogue
             t <- getCurrentTime
             return $ Just (src,t)
         let target = Target (TargetFile script_file Nothing) True dflags.homeUnitId_ src
