@@ -102,6 +102,10 @@ needsRebuild (FsNode path) = do
     fmap not $ fileExist $ toPosix path
 needsRebuild (ValueNode {}) = return False
 
+wasRebuilt :: DeciderContext -> Node -> IO ()
+wasRebuilt context node = do
+    modifyIORef context.dbCache $ HM.delete node
+
 getNodeInfoCached :: DeciderContext -> Node -> IO (Maybe Nodes)
 getNodeInfoCached context node = do
     cached <- HM.lookup node <$> readIORef context.dbCache

@@ -61,6 +61,7 @@ build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
                                 (Unchanged, False) -> return $ Just source_env
                                 otherwise -> do
                                     (result, result_env) <- executeTask source_env t
+                                    wasRebuilt decider node
                                     return if result then Just result_env else Nothing
         case status of
             Nothing  -> return $ Failed node
