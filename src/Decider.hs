@@ -10,6 +10,7 @@ import Database.SQLite.Simple
 import qualified Data.Text as T
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Encoding as BE
+import qualified Data.HashMap.Strict as HM
 import System.OsPath
 import System.OsString ( coercionToPlatformTypes )
 import System.File.OsPath ( readFile' )
@@ -17,12 +18,14 @@ import System.Posix.Files.PosixString
 import Data.Time.Clock (nominalDiffTimeToSeconds)
 import Data.Time.Clock.POSIX
 import Crypto.Hash.MD5
+import Data.IORef
 import System.IO.Unsafe
 
 import Node
 import Db
 
 data DeciderContext = DeciderContext {
+    dbCache :: IORef (HM.HashMap Node (Maybe Nodes)),
     conn :: Connection
 }
 
@@ -58,14 +61,16 @@ dbSignature metadata    = metadata.signature
 
 withDeciderContext :: FilePath -> (DeciderContext -> IO a) -> IO a
 withDeciderContext dbFile = bracket
-    do fmap DeciderContext $ openDb dbFile
+    do
+        r <- newIORef HM.empty
+        DeciderContext r <$> openDb dbFile
     do close . (.conn)
 
-dbName :: Node -> IO (T.Text, T.Text)
-dbName (FsNode path)        = do
-                                p <- decodeFS path
-                                pure (T.pack "fs", T.pack p)
-dbName (ValueNode name _ _) =   pure (T.pack "value", T.pack name)
+dbName :: Node -> (T.Text, T.Text)
+dbName (FsNode path) = unsafePerformIO do
+                         p <- decodeFS path
+                         pure (T.pack "fs",    T.pack p)
+dbName (ValueNode name _ _) = (T.pack "value", T.pack name)
 
 fromDb :: Nodes -> MetaData
 fromDb (Nodes _ _ _ nodeType name existed timestamp signature _ _)
@@ -84,21 +89,32 @@ instance Monoid Ruling where
 
 decideNode :: DeciderContext -> Node -> IO Ruling
 decideNode context node = do
-    (dbtype, name) <- dbName node
-    prevNode <- getNodeInfo context.conn dbtype name
+    prevNode <- getNodeInfoCached context node
     let prevMetaData = fromDb <$> prevNode
     newMetadata <- buildNewMetadata node
     let changed = fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
     unless (or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata) do
-        case prevNode of
-            Nothing -> initNodeInfo   context.conn dbtype name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
-            Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
+        updateDb context node prevNode newMetadata
     return changed
 
 needsRebuild :: Node -> IO Bool
 needsRebuild (FsNode path) = do
     fmap not $ fileExist $ toPosix path
 needsRebuild (ValueNode {}) = return False
+
+getNodeInfoCached :: DeciderContext -> Node -> IO (Maybe Nodes)
+getNodeInfoCached context node = do
+    cached <- HM.lookup node <$> readIORef context.dbCache
+    case cached of
+        Just ni -> return ni
+        Nothing -> do
+            let (dbtype, name) = dbName node
+            ni <- getNodeInfo context.conn dbtype name
+            updateNodeInfoCache context node ni
+            return ni
+
+updateNodeInfoCache :: DeciderContext -> Node -> Maybe Nodes -> IO ()
+updateNodeInfoCache context node ni = modifyIORef context.dbCache $ HM.insert node ni
 
 buildNewMetadata :: Node -> IO MetaData
 buildNewMetadata (FsNode path) = do
@@ -111,6 +127,14 @@ buildNewMetadata (FsNode path) = do
             return $ MetaData (mkTimestamp $ modificationTimeHiRes fStatus) signature
         False -> return Nonexistent
 buildNewMetadata (ValueNode _ value _) = return $ ValMetaData $ hash $ BE.encode BE.utf8 $ T.pack value
+
+updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> IO ()
+updateDb context node prevNode newMetadata = do
+    ni <- case prevNode of
+        Nothing -> initNodeInfo   context.conn dbtype name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
+                    where (dbtype, name) = dbName node
+        Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
+    updateNodeInfoCache context node $ Just ni
 
 toPosix path = case coercionToPlatformTypes of
     Right (_, coercion) -> coerceWith coercion path
