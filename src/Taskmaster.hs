@@ -56,12 +56,12 @@ build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
                         Nothing -> return $ Just (transformWithNode node source_env)
                         Just t -> do
                             let sources_changed = mconcat $ map (.changed) done
-                            needs_rebuild <- needsRebuild node
+                            needs_rebuild <- needsRebuild decider node
                             case (sources_changed, needs_rebuild) of
                                 (Unchanged, False) -> return $ Just source_env
                                 otherwise -> do
                                     (result, result_env) <- executeTask source_env t
-                                    wasRebuilt decider node
+                                    wasRebuilt decider node result
                                     return if result then Just result_env else Nothing
         case status of
             Nothing  -> return $ Failed node

@@ -38,7 +38,7 @@ data NodesT f
     , timestamp      :: Columnar f Int64
     , signature      :: Columnar f B.ByteString
     , task_signature :: Columnar f (Maybe B.ByteString)
-    , task_status    :: Columnar f (Maybe Int32) }
+    , task_status    :: Columnar f (Maybe Bool) }
     deriving (Generic, Beamable)
 
 instance Table NodesT where
@@ -71,7 +71,7 @@ setupSchema conn = do
             timestamp BIGINT NOT NULL,
             signature BLOB NOT NULL,
             task_signature BLOB,
-            task_status INTEGER
+            task_status BOOL
         )
     |]
 
@@ -114,7 +114,7 @@ getNodeInfo conn nodeType name = do
         n:[] -> Just n
         []   -> Nothing
 
-initNodeInfo :: Connection -> T.Text -> T.Text -> Bool -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Int32 -> IO Nodes
+initNodeInfo :: Connection -> T.Text -> T.Text -> Bool -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Bool -> IO Nodes
 initNodeInfo conn nodeType name exists timestamp signature taskSignature taskStatus = do
     runBeamSqlite conn do
         Just next_persistent_id <- runSelectReturningOne $ select do
@@ -135,7 +135,7 @@ initNodeInfo conn nodeType name exists timestamp signature taskSignature taskSta
                 ]
         return result
 
-updateNodeInfo :: Connection -> Nodes -> Bool -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Int32 -> IO Nodes
+updateNodeInfo :: Connection -> Nodes -> Bool -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Bool -> IO Nodes
 updateNodeInfo conn prevNodeInfo exists timestamp signature taskSignature taskStatus = do
     runBeamSqlite conn do
         [result] <- runInsertReturningList do

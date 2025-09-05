@@ -89,22 +89,29 @@ instance Monoid Ruling where
 
 decideNode :: DeciderContext -> Node -> IO Ruling
 decideNode context node = do
+    (prevMetaData, newMetadata) <- syncDb context node Nothing
+    return $ fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
+
+needsRebuild :: DeciderContext -> Node -> IO Bool
+needsRebuild decider node@(FsNode path) = do
+    exists <- fileExist $ toPosix path
+    prevResult <- fromMaybe False . join <$> fmap (.task_status) <$> getNodeInfoCached decider node
+    return $ not prevResult || not exists
+needsRebuild decider (ValueNode {}) = return False
+
+wasRebuilt :: DeciderContext -> Node -> Bool -> IO ()
+wasRebuilt context node status = do
+    void $ syncDb context node $ Just status
+
+syncDb :: DeciderContext -> Node -> Maybe Bool -> IO (Maybe MetaData, MetaData)
+syncDb context node status = do
     prevNode <- getNodeInfoCached context node
     let prevMetaData = fromDb <$> prevNode
     newMetadata <- buildNewMetadata node
-    let changed = fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
     unless (or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata) do
-        updateDb context node prevNode newMetadata
-    return changed
-
-needsRebuild :: Node -> IO Bool
-needsRebuild (FsNode path) = do
-    fmap not $ fileExist $ toPosix path
-needsRebuild (ValueNode {}) = return False
-
-wasRebuilt :: DeciderContext -> Node -> IO ()
-wasRebuilt context node = do
+        updateDb context node prevNode newMetadata status
     modifyIORef context.dbCache $ HM.delete node
+    return (prevMetaData, newMetadata)
 
 getNodeInfoCached :: DeciderContext -> Node -> IO (Maybe Nodes)
 getNodeInfoCached context node = do
@@ -132,12 +139,12 @@ buildNewMetadata (FsNode path) = do
         False -> return Nonexistent
 buildNewMetadata (ValueNode _ value _) = return $ ValMetaData $ hash $ BE.encode BE.utf8 $ T.pack value
 
-updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> IO ()
-updateDb context node prevNode newMetadata = do
+updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> Maybe Bool-> IO ()
+updateDb context node prevNode newMetadata status = do
     ni <- case prevNode of
-        Nothing -> initNodeInfo   context.conn dbtype name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
+        Nothing -> initNodeInfo   context.conn dbtype name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing status
                     where (dbtype, name) = dbName node
-        Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing Nothing
+        Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing (status `mplus` ni.task_status)
     updateNodeInfoCache context node $ Just ni
 
 toPosix path = case coercionToPlatformTypes of
