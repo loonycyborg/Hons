@@ -110,7 +110,7 @@ syncDb context node status = do
     newMetadata <- buildNewMetadata node
     unless (or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata) do
         updateDb context node prevNode newMetadata status
-    modifyIORef context.dbCache $ HM.delete node
+        modifyIORef context.dbCache $ HM.delete node
     return (prevMetaData, newMetadata)
 
 getNodeInfoCached :: DeciderContext -> Node -> IO (Maybe Nodes)
