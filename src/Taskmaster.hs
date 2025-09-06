@@ -14,6 +14,7 @@ import Environment
 import Decider
 import DepGraph
 import Data.Maybe (mapMaybe, fromJust, isJust, isNothing)
+import Data.ByteString (ByteString)
 
 data TaskStatus vars where
     Done    :: { target :: Node, env :: Environment vars, changed :: Ruling } -> TaskStatus vars
@@ -28,8 +29,12 @@ classifyStatuses = foldr classifyStatus ([], []) where
             Failed {} -> (  lDone, c:lFailed)
 
 executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
-executeTask env task@(Task targets sources action) =
+executeTask env task@(Task targets sources action sign) =
     runReaderT (runStateT action env) task
+
+signTask :: Environment vars -> Task vars -> IO [ByteString]
+signTask env task@(Task targets sources action sign) =
+    fst <$> runReaderT (runStateT sign env) task
 
 transformWithNode :: Typeable vars => Node -> Environment vars -> Environment vars
 transformWithNode (ValueNode _ _ tr) = eTransform tr
@@ -56,12 +61,13 @@ build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
                         Nothing -> return $ Just (transformWithNode node source_env)
                         Just t -> do
                             let sources_changed = mconcat $ map (.changed) done
-                            needs_rebuild <- needsRebuild decider node
+                            signature <- signTask source_env t
+                            needs_rebuild <- needsRebuild decider node signature
                             case (sources_changed, needs_rebuild) of
                                 (Unchanged, False) -> return $ Just source_env
                                 otherwise -> do
                                     (result, result_env) <- executeTask source_env t
-                                    wasRebuilt decider node result
+                                    wasRebuilt decider node result signature
                                     return if result then Just result_env else Nothing
         case status of
             Nothing  -> return $ Failed node

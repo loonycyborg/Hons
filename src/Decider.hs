@@ -17,7 +17,7 @@ import System.File.OsPath ( readFile' )
 import System.Posix.Files.PosixString
 import Data.Time.Clock (nominalDiffTimeToSeconds)
 import Data.Time.Clock.POSIX
-import Crypto.Hash.MD5
+import qualified Crypto.Hash.MD5 as MD5
 import Data.IORef
 import System.IO.Unsafe
 
@@ -26,6 +26,7 @@ import Db
 
 data DeciderContext = DeciderContext {
     dbCache :: IORef (HM.HashMap Node (Maybe Nodes)),
+    taskStatusCache :: IORef (HM.HashMap Node TaskMetaData),
     conn :: Connection
 }
 
@@ -33,6 +34,10 @@ data MetaData where
     MetaData    :: { timestamp :: Int64, signature :: B.ByteString } -> MetaData
     ValMetaData :: { signature :: B.ByteString } -> MetaData
     Nonexistent :: {} -> MetaData
+    deriving (Eq, Show)
+
+data TaskMetaData =
+    TaskMetaData { status :: Bool, task_signature :: Maybe B.ByteString }
     deriving (Eq, Show)
 
 nodeChanged :: MetaData -> MetaData -> Ruling
@@ -62,8 +67,9 @@ dbSignature metadata    = metadata.signature
 withDeciderContext :: FilePath -> (DeciderContext -> IO a) -> IO a
 withDeciderContext dbFile = bracket
     do
-        r <- newIORef HM.empty
-        DeciderContext r <$> openDb dbFile
+        cache <- newIORef HM.empty
+        statuses <- newIORef HM.empty
+        DeciderContext cache statuses <$> openDb dbFile
     do close . (.conn)
 
 dbName :: Node -> (T.Text, T.Text)
@@ -89,28 +95,30 @@ instance Monoid Ruling where
 
 decideNode :: DeciderContext -> Node -> IO Ruling
 decideNode context node = do
-    (prevMetaData, newMetadata) <- syncDb context node Nothing
+    (prevMetaData, newMetadata) <- syncDb context node
     return $ fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
 
-needsRebuild :: DeciderContext -> Node -> IO Bool
-needsRebuild decider node@(FsNode path) = do
+needsRebuild :: DeciderContext -> Node -> [B.ByteString] -> IO Bool
+needsRebuild decider node@(FsNode path) task_signature = do
     exists <- fileExist $ toPosix path
-    prevResult <- fromMaybe False . join <$> fmap (.task_status) <$> getNodeInfoCached decider node
-    return $ not prevResult || not exists
-needsRebuild decider (ValueNode {}) = return False
+    prevNode <- getNodeInfoCached decider node
+    let prevResult    = fromMaybe False $ join $ (.task_status)    <$> prevNode
+    let prevSignature =                   join $ (.task_signature) <$> prevNode
+    let signature     = hashSignature task_signature
+    return $ not prevResult || not exists || signature /= prevSignature
+needsRebuild decider (ValueNode {}) _ = return False
 
-wasRebuilt :: DeciderContext -> Node -> Bool -> IO ()
-wasRebuilt context node status = do
-    void $ syncDb context node $ Just status
+wasRebuilt :: DeciderContext -> Node -> Bool -> [B.ByteString] -> IO ()
+wasRebuilt context node status signature = do
+    modifyIORef context.taskStatusCache $ HM.insert node $ TaskMetaData status $ hashSignature signature
 
-syncDb :: DeciderContext -> Node -> Maybe Bool -> IO (Maybe MetaData, MetaData)
-syncDb context node status = do
+syncDb :: DeciderContext -> Node -> IO (Maybe MetaData, MetaData)
+syncDb context node = do
     prevNode <- getNodeInfoCached context node
     let prevMetaData = fromDb <$> prevNode
     newMetadata <- buildNewMetadata node
     unless (or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata) do
-        updateDb context node prevNode newMetadata status
-        modifyIORef context.dbCache $ HM.delete node
+        updateDb context node prevNode newMetadata
     return (prevMetaData, newMetadata)
 
 getNodeInfoCached :: DeciderContext -> Node -> IO (Maybe Nodes)
@@ -134,18 +142,28 @@ buildNewMetadata (FsNode path) = do
         True -> do
             fStatus <- getFileStatus $ toPosix path
             signature <- unsafeInterleaveIO do
-                hash <$> readFile' path
+                MD5.hash <$> readFile' path
             return $ MetaData (mkTimestamp $ modificationTimeHiRes fStatus) signature
         False -> return Nonexistent
-buildNewMetadata (ValueNode _ value _) = return $ ValMetaData $ hash $ BE.encode BE.utf8 $ T.pack value
+buildNewMetadata (ValueNode _ value _) = return $ ValMetaData $ MD5.hash $ BE.encode BE.utf8 $ T.pack value
 
-updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> Maybe Bool-> IO ()
-updateDb context node prevNode newMetadata status = do
+updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> IO ()
+updateDb context node prevNode newMetadata = do
+    taskStatus <- HM.lookup node <$> readIORef context.taskStatusCache
+    let (task_signature, status) = case taskStatus of
+            Just (TaskMetaData s t) -> (t, Just s)
+            Nothing -> (Nothing, Nothing)
     ni <- case prevNode of
-        Nothing -> initNodeInfo   context.conn dbtype name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing status
+        Nothing -> initNodeInfo   context.conn dbtype name (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) task_signature status
                     where (dbtype, name) = dbName node
-        Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) Nothing (status `mplus` ni.task_status)
+        Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) task_signature status
     updateNodeInfoCache context node $ Just ni
+
+hashSignature :: [B.ByteString] -> Maybe B.ByteString
+hashSignature []    = Nothing
+hashSignature parts = Just $ MD5.finalize ctx where
+    ctx  = foldl MD5.update ctx0 parts
+    ctx0 = MD5.init
 
 toPosix path = case coercionToPlatformTypes of
     Right (_, coercion) -> coerceWith coercion path
