@@ -4,7 +4,6 @@ module Tool.CC where
 
 import Builder
 import CmdLine
-import Action
 import Environment
 import Node
 import DepGraph
@@ -27,12 +26,8 @@ instance Argument Flag where
 
 compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
 compile target source = command target source do
-    env <- getenv
-    let cc = eLookup @"cc.com" env
-    execute $ Cmd cc :$ Compile :$ Output target :$ source
+    substExec @ToolVars $ Cmd (subst @"cc.com") :$ Compile :$ Output target :$ source
 
 link :: (UseEnv ToolVars vars, Argument s, NodeList s) => Node -> s -> RuleSet vars
 link target sources = command target sources do
-    env <- getenv
-    let ld = eLookup @"cc.linkcom" env
-    execute $ Cmd ld :$ Output target :$ sources
+    substExec @ToolVars $ Cmd (subst @"cc.linkcom") :$ Output target :$ sources

@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE BlockArguments, ImplicitParams, DataKinds, AllowAmbiguousTypes #-}
 
 module CmdLine where
 
@@ -14,10 +14,14 @@ import qualified Data.List.NonEmpty as NE
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.Type.Coercion ( coerceWith )
 import Data.Foldable ( Foldable(toList), concat )
-
-import Node ( Node(ValueNode, FsNode) )
 import GHC.IO.Exception (ExitCode(..))
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import GHC.TypeLits (Symbol, KnownSymbol)
+import Data.Kind (Type)
+
+import Node ( Node(ValueNode, FsNode) )
+import Environment
+import Action (Action, getenv)
 
 {-# NOINLINE encodeArg #-}
 encodeArg = unsafePerformIO . encodeFS
@@ -83,6 +87,14 @@ spawnCmdPrint cmdline = do
 success (Exited ExitSuccess) = True
 success _ = False
 
-
 execute :: MonadIO m => CmdLine -> m Bool
 execute = fmap success . liftIO . spawnCmdPrint
+
+subst :: forall (s :: Symbol) {vars} {a} . (LookupType s vars ~ a, ConstructionVariable a, ?e::(Environment vars), KnownSymbol s) => a
+subst = eLookup @s ?e
+
+substExec :: forall (toolset :: [Type]) {vars} . (UseEnv toolset vars) => ((?e::Environment vars) => CmdLine) -> Action vars
+substExec cmdline = do
+    env <- getenv
+    let ?e = env
+    execute cmdline
