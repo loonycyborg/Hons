@@ -18,10 +18,16 @@ import GHC.IO.Exception (ExitCode(..))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC.TypeLits (Symbol, KnownSymbol)
 import Data.Kind (Type)
+import System.OsString.Internal.Types (PosixString(getPosixString))
+import Data.ByteString (ByteString)
+import Data.ByteString.Short (fromShort)
 
-import Node ( Node(ValueNode, FsNode) )
+import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList )
 import Environment
-import Action (Action, getenv)
+import Action (Action, getenv, ActionM)
+import Decider (toPosix)
+import DepGraph (RuleSet)
+import Builder (command)
 
 {-# NOINLINE encodeArg #-}
 encodeArg = unsafePerformIO . encodeFS
@@ -90,11 +96,19 @@ success _ = False
 execute :: MonadIO m => CmdLine -> m Bool
 execute = fmap success . liftIO . spawnCmdPrint
 
+expandForSignature :: CmdLine -> [ByteString]
+expandForSignature = toList . fmap (fromShort . getPosixString . toPosix) . expand
+
 subst :: forall (s :: Symbol) {vars} {a} . (LookupType s vars ~ a, ConstructionVariable a, ?e::(Environment vars), KnownSymbol s) => a
 subst = eLookup @s ?e
 
-substExec :: forall (toolset :: [Type]) {vars} . (UseEnv toolset vars) => ((?e::Environment vars) => CmdLine) -> Action vars
-substExec cmdline = do
-    env <- getenv
-    let ?e = env
-    execute cmdline
+mkCmdTask :: forall (toolset :: [Type]) {vars} {a} {b}. (NodeListNonEmpty a, NodeList b, UseEnv toolset vars) => a -> b -> ((?e::Environment vars) => CmdLine) -> RuleSet vars
+mkCmdTask target source cmdline = command target source 
+        do
+            env <- getenv
+            let ?e = env
+            execute cmdline
+        do
+            env <- getenv
+            let ?e = env
+            return $ expandForSignature cmdline

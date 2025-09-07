@@ -2,7 +2,6 @@
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
-import Builder
 import CmdLine
 import Environment
 import Node
@@ -25,9 +24,7 @@ instance Argument Flag where
     toCmdLine (Output a) = encodeArg "-o" : toCmdLine a
 
 compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
-compile target source = command target source do
-    substExec @ToolVars $ Cmd (subst @"cc.com") :$ Compile :$ Output target :$ source
+compile target source = mkCmdTask @ToolVars target source $ Cmd (subst @"cc.com") :$ Compile :$ Output target :$ source
 
 link :: (UseEnv ToolVars vars, Argument s, NodeList s) => Node -> s -> RuleSet vars
-link target sources = command target sources do
-    substExec @ToolVars $ Cmd (subst @"cc.linkcom") :$ Output target :$ sources
+link target sources = mkCmdTask @ToolVars target sources $ Cmd (subst @"cc.linkcom") :$ Output target :$ sources
