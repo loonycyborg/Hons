@@ -24,7 +24,7 @@ import Data.ByteString.Short (fromShort)
 
 import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList )
 import Environment
-import Action (Action, getenv, ActionM)
+import Action (Action, getenv, ActionM, gett, Task (Task))
 import Decider (toPosix)
 import DepGraph (RuleSet)
 import Builder (command)
@@ -102,13 +102,23 @@ expandForSignature = toList . fmap (fromShort . getPosixString . toPosix) . expa
 subst :: forall (s :: Symbol) {vars} {a} . (LookupType s vars ~ a, ConstructionVariable a, ?e::(Environment vars), KnownSymbol s) => a
 subst = eLookup @s ?e
 
-mkCmdTask :: forall (toolset :: [Type]) {vars} {a} {b}. (NodeListNonEmpty a, NodeList b, UseEnv toolset vars) => a -> b -> ((?e::Environment vars) => CmdLine) -> RuleSet vars
-mkCmdTask target source cmdline = command target source 
+substT :: (?t::Task vars) => NE.NonEmpty Node
+substT = targets where Task targets _ _ _ = ?t
+
+substS :: (?t::Task vars) => [Node]
+substS = sources where Task _ sources _ _ = ?t
+
+osCommand :: forall (toolset :: [Type]) {vars} {a} {b}. (NodeListNonEmpty a, NodeList b, UseEnv toolset vars) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
+osCommand cmdline target source = command target source
         do
             env <- getenv
+            task <- gett
             let ?e = env
+                ?t = task
             execute cmdline
         do
             env <- getenv
+            task <- gett
             let ?e = env
+                ?t = task
             return $ expandForSignature cmdline
