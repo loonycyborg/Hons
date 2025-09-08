@@ -10,12 +10,8 @@ env =
 targets = [filelist|prog|]
 sources = [filelist|src1.c src2.c|]
 objects = [filelist|src1.o src2.o|]
-p = command targets objects do
-    task <- gett
-    liftIO $ print ("Pretending to build program: " ++ show task.targets ++ " -> " ++ show task.sources)
-    return True
-  do
-    return []
+p = osCommand (Cmd "echo" :$ "Pretending to build program: " :$ substT :$ " -> " :$ substS) targets objects
+
 r = p <> fold (NE.zipWith mkO objects sources)
 
 -- Propagator nodes modify environment associated with them
@@ -30,12 +26,7 @@ prule =
 
 cyc = command sources targets (return True) (return [])
 
-mkO o c = command o c do
-    task <- gett
-    liftIO $ print ("Pretending to build object: " ++ show task.targets ++ " -> " ++ show task.sources)
-    liftIO $ spawnCmd $ Cmd "echo" :$ task.targets :$ "->" :$ task.sources
-    return True
-  do return []
+mkO o c = osCommand (Cmd "echo" :$ "Pretending to build object: " :$ substT :$ " -> " :$ substS) o c
 
 o = CC.compile [fs|example/hello.o|] [fs|example/hello.c|]
 prog = CC.link [fs|example/hello|] [fs|example/hello.o|]
