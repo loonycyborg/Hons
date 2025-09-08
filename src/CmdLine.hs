@@ -108,7 +108,7 @@ substT = targets where Task targets _ _ _ = ?t
 substS :: (?t::Task vars) => [Node]
 substS = sources where Task _ sources _ _ = ?t
 
-osCommand :: forall (toolset :: [Type]) {vars} {a} {b}. (NodeListNonEmpty a, NodeList b, UseEnv toolset vars) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
+osCommand :: (NodeListNonEmpty a, NodeList b) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
 osCommand cmdline target source = command target source
         do
             env <- getenv
