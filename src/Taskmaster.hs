@@ -46,31 +46,31 @@ build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
     buildNode decider xs       _     _     ((b:_):bs) = fail $ "Dependency cycle detected: " ++ (show $ b : (reverse $ b : takeWhile (/=b) xs))
     buildNode decider (node:_) tsrcs osrcs []         = do
         let srcs = tsrcs <> osrcs
-        status <- case (srcs, node `HM.lookup` ruleset.tasks) of
+        case (srcs, node `HM.lookup` ruleset.tasks) of
             ([], task) -> do
                 when (isJust task) do
                     fail $ "Invalid task without sources for target " ++ show node
-                return $ Just (transformWithNode node env)
+                returnSuccess (transformWithNode node env)
             (_, task) -> do
-                (done, failed) <- fmap classifyStatuses $ sequence srcs
+                (done, failed) <- classifyStatuses <$> sequence srcs
                 if not $ null failed then
-                    return Nothing
+                    returnFail
                 else do
                     let source_env = foldr1 eMerge $ map (.env) done
                     case task of
-                        Nothing -> return $ Just (transformWithNode node source_env)
+                        Nothing -> returnSuccess (transformWithNode node source_env)
                         Just t -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t
                             needs_rebuild <- needsRebuild decider node signature
                             case (sources_changed, needs_rebuild) of
-                                (Unchanged, False) -> return $ Just source_env
+                                (Unchanged, False) -> returnSuccess source_env
                                 otherwise -> do
                                     (result, result_env) <- executeTask source_env t
                                     wasRebuilt decider node result signature
-                                    return if result then Just result_env else Nothing
-        case status of
-            Nothing  -> return $ Failed node
-            Just env -> do
+                                    if result then returnSuccess result_env else returnFail
+        where
+            returnFail = return $ Failed node
+            returnSuccess env = do
                 changed <- decideNode decider node
                 return $ Done node env changed
