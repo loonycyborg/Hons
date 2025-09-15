@@ -7,6 +7,8 @@ import qualified Data.List.NonEmpty as L
 import Type.Reflection
 import Algebra.Graph.AdjacencyMap
 import Control.Monad
+import Data.Either
+import Control.Concurrent.Async
 
 import Action
 import Node
@@ -42,7 +44,7 @@ transformWithNode (FsNode _) = eTransform EIdentity
 
 build :: Typeable vars => RuleSet vars -> Environment vars -> Node -> IO (TaskStatus vars)
 build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
-        depthFirstFold (\l n -> n:l) (buildNode decider) ruleset.graph goal [] where
+        actualize $ depthFirstFold (\l n -> n:l) (buildNode decider) ruleset.graph goal [] where
     buildNode decider xs       _     _     ((b:_):bs) = fail $ "Dependency cycle detected: " ++ (show $ b : (reverse $ b : takeWhile (/=b) xs))
     buildNode decider (node:_) tsrcs osrcs []         = do
         let srcs = tsrcs <> osrcs
@@ -50,27 +52,37 @@ build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
             ([], task) -> do
                 when (isJust task) do
                     fail $ "Invalid task without sources for target " ++ show node
-                returnSuccess (transformWithNode node env)
+                Right <$> returnSuccess (transformWithNode node env)
             (_, task) -> do
-                (done, failed) <- classifyStatuses <$> sequence srcs
-                if not $ null failed then
-                    returnFail
-                else do
+                (pending, complete) <- partitionEithers <$> sequence srcs
+                let (done, failed) = classifyStatuses complete
+                evaluateNode pending done failed
+                where
+                evaluateNode pending@(_:_) done       _     = do
+                    Left <$> async do
+                        (async_done, async_failed) <- classifyStatuses <$> (sequence $ wait <$> pending)
+                        actualize $ evaluateNode [] (done <> async_done) async_failed
+                evaluateNode []            _          (_:_) = Right <$> returnFail
+                evaluateNode []            done@(_:_) []    = do
                     let source_env = foldr1 eMerge $ map (.env) done
                     case task of
-                        Nothing -> returnSuccess (transformWithNode node source_env)
+                        Nothing -> Right <$> returnSuccess (transformWithNode node source_env)
                         Just t -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t
                             needs_rebuild <- needsRebuild decider node signature
                             case (sources_changed, needs_rebuild) of
-                                (Unchanged, False) -> returnSuccess source_env
-                                otherwise -> do
+                                (Unchanged, False) -> Right <$> returnSuccess source_env
+                                otherwise -> Left <$> async do
                                     (result, result_env) <- executeTask source_env t
                                     wasRebuilt decider node result signature
                                     if result then returnSuccess result_env else returnFail
-        where
+            where
             returnFail = return $ Failed node
             returnSuccess env = do
                 changed <- decideNode decider node
                 return $ Done node env changed
+    actualize a = do
+        result <- a
+        case result of Right status -> return status
+                       Left a -> wait a

@@ -10,6 +10,7 @@ maintainer: loonycyborg@gmail.com
 category: Development
 
 library
+  ghc-options: -threaded -O2
   exposed-modules:
     Action
     Builder
@@ -26,6 +27,7 @@ library
 
   build-depends:
     algebraic-graphs >=0.7,
+    async,
     base,
     bytestring,
     bytestring-encoding,
@@ -57,6 +59,7 @@ library
 
 executable hons
   main-is: Main.hs
+  ghc-options: -threaded -O2
   build-depends:
     algebraic-graphs >=0.7,
     base,
