@@ -34,11 +34,11 @@ envFName = ".ghc.environment." <> intercalate "-" [arch, os, cProjectVersion]
 
 findEnv :: MonadIO m => m (Maybe FilePath)
 findEnv = liftIO do
-    file <- fmap join $ sequence executablePath
+    file <- join <$> sequence executablePath
     return do
         exe <- file
         case break (=="dist-newstyle") $ splitDirectories exe of
-            (path, _:_) -> Just $ (foldr1 (</>) path) </> envFName
+            (path, _:_) -> Just $ foldr1 (</>) path </> envFName
             (_, []) -> Nothing
 
 pPrint :: (Show a, MonadIO m) => a -> m ()
@@ -54,7 +54,7 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         dflags <- liftIO $ act dflags
             { backend   = interpreterBackend
             , ghcLink   = LinkInMemory
-            , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments ] `difference` (fromList [FieldSelectors])
+            , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments ] `difference` fromList [FieldSelectors]
             , packageEnv = env }
         setSessionDynFlags dflags
         let script_file = "Honstruct"

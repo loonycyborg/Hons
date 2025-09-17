@@ -49,4 +49,4 @@ depthFirstFold discover_func finish_func graph vertex a1 =
 topologicalSort :: DepGraph -> Node -> L.NonEmpty Node
 topologicalSort graph vertex = depthFirstFold (flip (:)) topS graph vertex [] where
     topS (x:_) xs _ []         = sconcat $ L.singleton x L.:| xs
-    topS xs    _  _ ((b:_):bs) = error $ "Dependency cycle detected: " ++ (show $ b : (reverse $ b : takeWhile (/=b) xs))
+    topS xs    _  _ ((b:_):bs) = error $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))

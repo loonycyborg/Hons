@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskellQuotes, TypeFamilies #-}
+{-# LANGUAGE TemplateHaskellQuotes, TypeFamilies, BlockArguments #-}
 
 module Node where
 import System.OsPath
@@ -13,7 +13,7 @@ import Data.Typeable
 import Data.List.NonEmpty (NonEmpty ((:|)), fromList)
 import Data.Foldable1 (Foldable1 (foldMap1))
 import qualified Data.List.NonEmpty as NE
-import Control.Monad (when)
+import Control.Monad (unless)
 import Environment
 import Control.Monad.IO.Class
 
@@ -67,7 +67,8 @@ instance Foldable1 f => NodeListNonEmpty (f Node) where
 encodeFilename :: (MonadIO m, MonadFail m) => FilePath -> m OsPath
 encodeFilename fn = do
     p <- liftIO $ encodeFS fn
-    when (not $ isValid p) (fail $ "Invalid file path: " ++ show p)
+    unless (isValid p) do
+        fail $ "Invalid file path: " ++ show p
     return p
 
 {-# NOINLINE baseDir #-}
@@ -77,10 +78,10 @@ mkFsNode :: OsPath -> Node
 mkFsNode = FsNode . makeRelative baseDir . unsafePerformIO . canonicalizePath
 mkAlias :: String -> Node
 mkAlias a = ValueNode a "" EDropOverrides
-mkValue :: String -> Node 
+mkValue :: String -> Node
 mkValue name = ValueNode name name EIdentity
 mkPropagator :: EnvTransform a => String -> a -> Node
-mkPropagator name tr = ValueNode name name tr
+mkPropagator name = ValueNode name name
 
 fs :: QuasiQuoter
 fs = QuasiQuoter {
