@@ -44,7 +44,7 @@ transformWithNode (FsNode _) = eTransform EIdentity
 
 build :: Typeable vars => RuleSet vars -> Environment vars -> Node -> IO (TaskStatus vars)
 build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
-        actualize $ depthFirstFold (\l n -> n:l) (buildNode decider) ruleset.graph goal [] where
+        actualize $ depthFirstFold (flip (:)) (buildNode decider) ruleset.graph goal [] where
     buildNode decider xs       _     _     ((b:_):bs) = fail $ "Dependency cycle detected: " ++ (show $ b : (reverse $ b : takeWhile (/=b) xs))
     buildNode decider (node:_) tsrcs osrcs []         = do
         let srcs = tsrcs <> osrcs
@@ -60,7 +60,7 @@ build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
                 where
                 evaluateNode pending@(_:_) done       _     = do
                     Left <$> async do
-                        (async_done, async_failed) <- classifyStatuses <$> (sequence $ wait <$> pending)
+                        (async_done, async_failed) <- classifyStatuses <$> mapM wait pending
                         actualize $ evaluateNode [] (done <> async_done) async_failed
                 evaluateNode []            _          (_:_) = Right <$> returnFail
                 evaluateNode []            done@(_:_) []    = do

@@ -7,7 +7,7 @@
            , EmptyDataDecls
            , OverloadedStrings
            , QuasiQuotes
-           , TemplateHaskell
+           , TemplateHaskellQuotes
            , TypeFamilies
 #-}
 module Db where
@@ -60,7 +60,7 @@ nodeMetaData :: DatabaseSettings Sqlite NodeMetaData
 nodeMetaData = unCheckDatabase nodeMetaDataChecked
 
 setupSchema conn = do
-    execute_ conn $ [sql|
+    execute_ conn [sql|
         create table if not exists nodes(
             id INTEGER PRIMARY KEY NOT NULL,
             persistent_id BIGINT NOT NULL,
@@ -111,7 +111,7 @@ getNodeInfo conn nodeType name = do
                     aggregate_ (\node -> (group_ node.nodeType, group_ node.name, max_ node.generation)) $ all_ nodeMetaData.nodes
                 filter_ (\node -> node.nodeType ==. val_ nodeType &&. node.name ==. val_ name &&. maybe_ (val_ False) (\g -> node.generation ==. g) generation) $ all_ nodeMetaData.nodes
     return case r of
-        n:[] -> Just n
+        [n] -> Just n
         []   -> Nothing
 
 initNodeInfo :: Connection -> T.Text -> T.Text -> Bool -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Bool -> IO Nodes

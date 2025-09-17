@@ -81,7 +81,7 @@ dbName (ValueNode name _ _) = (T.pack "value", T.pack name)
 fromDb :: Nodes -> MetaData
 fromDb (Nodes _ _ _ nodeType name existed timestamp signature _ _)
     | nodeType == T.pack "value" = ValMetaData signature
-    | existed == False           = Nonexistent
+    | not existed                = Nonexistent
     | otherwise                  = MetaData timestamp signature
 
 data Ruling = Unchanged | Changed deriving (Show, Eq)
@@ -102,8 +102,8 @@ needsRebuild :: DeciderContext -> Node -> [B.ByteString] -> IO Bool
 needsRebuild decider node@(FsNode path) task_signature = do
     exists <- fileExist $ toPosix path
     prevNode <- getNodeInfoCached decider node
-    let prevResult    = fromMaybe False $ join $ (.task_status)    <$> prevNode
-    let prevSignature =                   join $ (.task_signature) <$> prevNode
+    let prevResult    = fromMaybe False $ (.task_status)    =<< prevNode
+    let prevSignature =                   (.task_signature) =<< prevNode
     let signature     = hashSignature task_signature
     return $ not prevResult || not exists || signature /= prevSignature
 needsRebuild decider (ValueNode {}) _ = return False
@@ -169,8 +169,6 @@ toPosix path = case coercionToPlatformTypes of
     Right (_, coercion) -> coerceWith coercion path
 
 gainTimestamp :: IO Int64
-gainTimestamp = do
-    t <- getPOSIXTime
-    return $ mkTimestamp t
+gainTimestamp = mkTimestamp <$> getPOSIXTime
 
-mkTimestamp t = floor $ ((nominalDiffTimeToSeconds t) * 1e9)
+mkTimestamp t = floor $ nominalDiffTimeToSeconds t * 1e9
