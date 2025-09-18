@@ -54,16 +54,17 @@ build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
                     fail $ "Invalid task without sources for target " ++ show node
                 Right <$> returnSuccess (transformWithNode node env)
             (_, task) -> do
-                (pending, complete) <- partitionEithers <$> sequence srcs
+                allsrcs <- sequence srcs
+                let (pending, complete) = partitionEithers allsrcs
                 let (done, failed) = classifyStatuses complete
-                evaluateNode pending done failed
+                evaluateNode allsrcs pending done failed
                 where
-                evaluateNode pending@(_:_) done       _     = do
+                evaluateNode allsrcs (_:_) done       _     = do
                     Left <$> async do
-                        (async_done, async_failed) <- classifyStatuses <$> mapM wait pending
-                        actualize $ evaluateNode [] (done <> async_done) async_failed
-                evaluateNode []            _          (_:_) = Right <$> returnFail
-                evaluateNode []            done@(_:_) []    = do
+                        (async_done, async_failed) <- classifyStatuses <$> mapM (either wait return) allsrcs
+                        actualize $ evaluateNode allsrcs [] async_done async_failed
+                evaluateNode _       []    _          (_:_) = Right <$> returnFail
+                evaluateNode _       []    done@(_:_) []    = do
                     let source_env = foldr1 eMerge $ map (.env) done
                     case task of
                         Nothing -> Right <$> returnSuccess (transformWithNode node source_env)
