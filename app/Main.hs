@@ -19,6 +19,7 @@ import System.FilePath
 import System.Environment
 import Data.List
 import System.IO.Unsafe (unsafePerformIO)
+import Options.Applicative (execParser)
 
 import Algebra.Graph.Export.Dot (exportViaShow)
 
@@ -26,6 +27,8 @@ import Project
 import Node
 import DepGraph
 import Taskmaster
+
+import Options
 
 envFName = ".ghc.environment." <> intercalate "-" [arch, os, cProjectVersion]
     where
@@ -72,10 +75,12 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         liftIO $ do_build $ unsafeCoerce v
 
 do_build (Project e r) = do
+    settings <- execParser opts
+    print settings
     let g = r.graph
     let t = r.tasks
     writeFile "graph.dot" (exportViaShow g)
     print t
     let goal = [fs|example/hello|]
-    context <- build r e goal
+    context <- build settings r e goal
     print context

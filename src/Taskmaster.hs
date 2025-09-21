@@ -8,15 +8,24 @@ import Type.Reflection
 import Algebra.Graph.AdjacencyMap
 import Control.Monad
 import Data.Either
+import Data.Maybe
+import Data.ByteString (ByteString)
+import Data.IORef
 import Control.Concurrent.Async
+import Control.Concurrent.MVar
+import Control.Concurrent.QSem
+import Control.Exception
 
 import Action
 import Node
 import Environment
 import Decider
 import DepGraph
-import Data.Maybe (mapMaybe, fromJust, isJust, isNothing)
-import Data.ByteString (ByteString)
+
+data TaskmasterSettings = TaskmasterSettings {
+    jobs :: Int,
+    alwaysMake :: Bool
+} deriving (Eq, Show)
 
 data TaskStatus vars where
     Done    :: { target :: Node, env :: Environment vars, changed :: Ruling } -> TaskStatus vars
@@ -42,48 +51,68 @@ transformWithNode :: Typeable vars => Node -> Environment vars -> Environment va
 transformWithNode (ValueNode _ _ tr) = eTransform tr
 transformWithNode (FsNode _) = eTransform EIdentity
 
-build :: Typeable vars => RuleSet vars -> Environment vars -> Node -> IO (TaskStatus vars)
-build ruleset env goal = withDeciderContext "honsign.sqlite" \decider ->
-        actualize $ depthFirstFold (flip (:)) (buildNode decider) ruleset.graph goal [] where
-    buildNode decider xs       _     _     ((b:_):bs) = fail $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
-    buildNode decider (node:_) tsrcs osrcs []         = do
-        let srcs = tsrcs <> osrcs
-        case (srcs, node `HM.lookup` ruleset.tasks) of
-            ([], task) -> do
-                when (isJust task) do
-                    fail $ "Invalid task without sources for target " ++ show node
-                Right <$> returnSuccess (transformWithNode node env)
-            (_, task) -> do
-                allsrcs <- sequence srcs
-                let (pending, complete) = partitionEithers allsrcs
-                let (done, failed) = classifyStatuses complete
-                evaluateNode allsrcs pending done failed
-                where
-                evaluateNode allsrcs (_:_) done       _     = do
-                    Left <$> async do
-                        (async_done, async_failed) <- classifyStatuses <$> mapM (either wait return) allsrcs
-                        actualize $ evaluateNode allsrcs [] async_done async_failed
-                evaluateNode _       []    _          (_:_) = Right <$> returnFail
-                evaluateNode _       []    done@(_:_) []    = do
-                    let source_env = foldr1 eMerge $ map (.env) done
-                    case task of
-                        Nothing -> Right <$> returnSuccess (transformWithNode node source_env)
-                        Just t  -> do
-                            let sources_changed = mconcat $ map (.changed) done
-                            signature <- signTask source_env t
-                            needs_rebuild <- needsRebuild decider node signature
-                            case (sources_changed, needs_rebuild) of
-                                (Unchanged, False) -> Right <$> returnSuccess source_env
-                                _                  -> Left  <$> async do
-                                    (result, result_env) <- executeTask source_env t
-                                    wasRebuilt decider node result signature
-                                    if result then returnSuccess result_env else returnFail
+build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO (TaskStatus vars)
+build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -> do
+    task_cache <- newIORef HM.empty
+    parallel_limit <- case settings.jobs of
+        0 -> return Nothing
+        _ -> Just <$> newQSem settings.jobs
+    let
+        buildNode xs       _     _     ((b:_):bs) = fail $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
+        buildNode (node:_) tsrcs osrcs []         = do
+            let srcs = tsrcs <> osrcs
+            case (srcs, node `HM.lookup` ruleset.tasks) of
+                ([], task) -> do
+                    when (isJust task) do
+                        fail $ "Invalid task without sources for target " ++ show node
+                    Right <$> returnSuccess (transformWithNode node env)
+                (_, task) -> do
+                    allsrcs <- sequence srcs
+                    let (pending, complete) = partitionEithers allsrcs
+                    let (done, failed) = classifyStatuses complete
+                    evaluateNode allsrcs pending done failed
+                    where
+                    evaluateNode allsrcs (_:_) done       _     = do
+                        Left <$> async do
+                            (async_done, async_failed) <- classifyStatuses <$> mapM (either wait return) allsrcs
+                            actualize $ evaluateNode allsrcs [] async_done async_failed
+                    evaluateNode _       []    _          (_:_) = Right <$> returnFail
+                    evaluateNode _       []    done@(_:_) []    = do
+                        let source_env = foldr1 eMerge $ map (.env) done
+                        case task of
+                            Nothing -> Right <$> returnSuccess (transformWithNode node source_env)
+                            Just t  -> do
+                                let sources_changed = mconcat $ map (.changed) done
+                                signature <- signTask source_env t
+                                needs_rebuild <- needsRebuild decider node signature
+                                case (sources_changed, needs_rebuild || settings.alwaysMake) of
+                                    (Unchanged, False) -> Right <$> returnSuccess source_env
+                                    _                  -> Left  <$> async do
+                                        new_var <- newEmptyMVar
+                                        cached_var <- atomicModifyIORef' task_cache \cache ->
+                                            case HM.lookup t cache of
+                                                Just st -> (cache, st)
+                                                Nothing -> (HM.insert t new_var cache, new_var)
+                                        var <- if new_var == cached_var then do
+                                            (result, result_env) <- parallel_limiter do
+                                                executeTask source_env t
+                                            wasRebuilt decider node result signature
+                                            (if result then returnSuccess result_env else returnFail) >>= putMVar new_var
+                                            return new_var
+                                        else
+                                            return cached_var
+                                        readMVar var
             where
             returnFail = return $ Failed node
             returnSuccess env = do
                 changed <- decideNode decider node
                 return $ Done node env changed
-    actualize a = do
-        result <- a
-        case result of Right status -> return status
-                       Left a -> wait a
+        actualize a = do
+            result <- a
+            case result of Right status -> return status
+                           Left  a      -> wait a
+        parallel_limiter =
+            case parallel_limit of
+                Just sem -> bracket_ (waitQSem sem) (signalQSem sem)
+                Nothing  -> id
+    actualize $ depthFirstFold (flip (:)) buildNode ruleset.graph goal []

@@ -9,6 +9,7 @@ import Node
 import Environment
 import Data.List.NonEmpty as L
 import Data.ByteString (ByteString)
+import Data.Hashable
 
 type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
 type Action vars = (ActionM vars) Bool
@@ -22,6 +23,9 @@ instance Eq (Task vars) where
 
 instance Show (Task vars) where
     show (Task targets _ _ _) = "[[[" ++ (show . L.head $ targets) ++ "]]]"
+
+instance Hashable (Task vars) where
+    hashWithSalt salt t = hashWithSalt salt t.targets
 
 gett :: ActionM vars (Task vars)
 gett = lift ask
