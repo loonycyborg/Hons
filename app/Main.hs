@@ -18,6 +18,8 @@ import System.Directory
 import System.FilePath
 import System.Environment
 import Data.List
+import Data.Bool (bool)
+import System.Exit (exitFailure, exitSuccess)
 import System.IO.Unsafe (unsafePerformIO)
 import Options.Applicative (execParser)
 
@@ -82,5 +84,5 @@ do_build (Project e r) = do
     writeFile "graph.dot" (exportViaShow g)
     print t
     let goal = [fs|example/hello|]
-    context <- build settings r e goal
-    print context
+    result <- build settings r e goal
+    bool exitFailure exitSuccess result

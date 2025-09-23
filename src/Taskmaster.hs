@@ -24,13 +24,17 @@ import DepGraph
 
 data TaskmasterSettings = TaskmasterSettings {
     jobs :: Int,
-    alwaysMake :: Bool
+    alwaysMake :: Bool,
+    keepGoing :: Bool
 } deriving (Eq, Show)
 
 data TaskStatus vars where
     Done    :: { target :: Node, env :: Environment vars, changed :: Ruling } -> TaskStatus vars
     Failed  :: { target :: Node } -> TaskStatus vars
     deriving Show
+
+data BuildException = TaskFailed deriving (Show)
+instance Exception BuildException
 
 classifyStatuses :: Foldable t => t (TaskStatus vars) -> ([TaskStatus vars], [TaskStatus vars])
 classifyStatuses = foldr classifyStatus ([], []) where
@@ -39,9 +43,14 @@ classifyStatuses = foldr classifyStatus ([], []) where
             Done {}   -> (c:lDone,   lFailed)
             Failed {} -> (  lDone, c:lFailed)
 
-executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
-executeTask env task@(Task targets sources action sign) =
-    runReaderT (runStateT action env) task
+executeTask :: Typeable vars => Bool -> Environment vars -> Task vars -> IO (Bool, Environment vars)
+executeTask keep_going env task@(Task targets sources action sign) = do
+    (result, env) <- runReaderT (runStateT action env) task
+    unless result do
+        putStrLn $ "hons: *** " ++ show task ++ ": task failed"
+        unless keep_going do
+            throwIO TaskFailed
+    return (result, env)
 
 signTask :: Environment vars -> Task vars -> IO [ByteString]
 signTask env task@(Task targets sources action sign) =
@@ -51,7 +60,7 @@ transformWithNode :: Typeable vars => Node -> Environment vars -> Environment va
 transformWithNode (ValueNode _ _ tr) = eTransform tr
 transformWithNode (FsNode _) = eTransform EIdentity
 
-build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO (TaskStatus vars)
+build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO Bool
 build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -> do
     task_cache <- newIORef HM.empty
     parallel_limit <- case settings.jobs of
@@ -95,7 +104,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                                 Nothing -> (HM.insert t new_var cache, new_var)
                                         var <- if new_var == cached_var then do
                                             (result, result_env) <- parallel_limiter do
-                                                executeTask source_env t
+                                                executeTask settings.keepGoing source_env t
                                             wasRebuilt decider node result signature
                                             (if result then returnSuccess result_env else returnFail) >>= putMVar new_var
                                             return new_var
@@ -115,4 +124,11 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
             case parallel_limit of
                 Just sem -> bracket_ (waitQSem sem) (signalQSem sem)
                 Nothing  -> id
-    actualize $ depthFirstFold (flip (:)) buildNode ruleset.graph goal []
+    result <- catch
+        do actualize $ depthFirstFold (flip (:)) buildNode ruleset.graph goal []
+        do \(e :: BuildException) -> return $ Failed goal
+    case result of
+        Failed {} -> do
+            putStrLn "hons: *** build failed"
+            return False
+        _         -> return True

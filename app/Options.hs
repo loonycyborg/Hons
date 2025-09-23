@@ -19,6 +19,11 @@ taskmasterOpts = TaskmasterSettings <$>
             long "always-build" <>
             short 'B' <>
             help "Unconditionally rebuild all targets"
+        ) <*>
+        switch (
+            long "keep-going" <>
+            short 'k' <>
+            help "Even after a failure continue to build other targets that don't depend on failed targets"
         )
 
 opts = info (taskmasterOpts <**> helper)
