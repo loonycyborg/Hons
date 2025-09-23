@@ -26,7 +26,6 @@ import Db
 
 data DeciderContext = DeciderContext {
     dbCache :: IORef (HM.HashMap Node (Maybe Nodes)),
-    taskStatusCache :: IORef (HM.HashMap Node TaskMetaData),
     conn :: Connection
 }
 
@@ -68,8 +67,7 @@ withDeciderContext :: FilePath -> (DeciderContext -> IO a) -> IO a
 withDeciderContext dbFile = bracket
     do
         cache <- newIORef HM.empty
-        statuses <- newIORef HM.empty
-        DeciderContext cache statuses <$> openDb dbFile
+        DeciderContext cache <$> openDb dbFile
     do close . (.conn)
 
 dbName :: Node -> (T.Text, T.Text)
@@ -84,6 +82,9 @@ fromDb (Nodes _ _ _ nodeType name existed timestamp signature _ _)
     | not existed                = Nonexistent
     | otherwise                  = MetaData timestamp signature
 
+fromDbTask :: Nodes -> Maybe TaskMetaData
+fromDbTask (Nodes _ _ _ _ _ _ _ _ task_signature task_status) = TaskMetaData <$> task_status <*> Just task_signature
+
 data Ruling = Unchanged | Changed deriving (Show, Eq)
 
 instance Semigroup Ruling where
@@ -95,7 +96,7 @@ instance Monoid Ruling where
 
 decideNode :: DeciderContext -> Node -> IO Ruling
 decideNode context node = do
-    (prevMetaData, newMetadata) <- syncDb context node
+    (prevMetaData, newMetadata) <- syncDb context node Nothing
     return $ fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
 
 needsRebuild :: DeciderContext -> Node -> [B.ByteString] -> IO Bool
@@ -110,15 +111,18 @@ needsRebuild decider (ValueNode {}) _ = return False
 
 wasRebuilt :: DeciderContext -> Node -> Bool -> [B.ByteString] -> IO ()
 wasRebuilt context node status signature = do
-    modifyIORef context.taskStatusCache $ HM.insert node $ TaskMetaData status $ hashSignature signature
+    void $ syncDb context node (Just $ TaskMetaData status $ hashSignature signature)
 
-syncDb :: DeciderContext -> Node -> IO (Maybe MetaData, MetaData)
-syncDb context node = do
+syncDb :: DeciderContext -> Node -> Maybe TaskMetaData -> IO (Maybe MetaData, MetaData)
+syncDb context node task_metadata = do
     prevNode <- getNodeInfoCached context node
     let prevMetaData = fromDb <$> prevNode
     newMetadata <- buildNewMetadata node
-    unless (or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata) do
-        updateDb context node prevNode newMetadata
+    let prev_task_metadata = fromDbTask <$> prevNode
+    let skip_update = or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata
+    let skip_task_update = isNothing task_metadata || Just task_metadata == prev_task_metadata
+    unless (skip_update && skip_task_update) do
+        updateDb context node prevNode newMetadata task_metadata
     return (prevMetaData, newMetadata)
 
 getNodeInfoCached :: DeciderContext -> Node -> IO (Maybe Nodes)
@@ -147,10 +151,9 @@ buildNewMetadata (FsNode path) = do
         False -> return Nonexistent
 buildNewMetadata (ValueNode _ value _) = return $ ValMetaData $ MD5.hash $ BE.encode BE.utf8 $ T.pack value
 
-updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> IO ()
-updateDb context node prevNode newMetadata = do
-    taskStatus <- HM.lookup node <$> readIORef context.taskStatusCache
-    let (task_signature, status) = case taskStatus of
+updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> Maybe TaskMetaData -> IO ()
+updateDb context node prevNode newMetadata newTaskMetadata = do
+    let (task_signature, status) = case newTaskMetadata of
             Just (TaskMetaData s t) -> (t, Just s)
             Nothing -> (Nothing, Nothing)
     ni <- case prevNode of

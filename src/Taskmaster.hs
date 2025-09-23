@@ -43,14 +43,9 @@ classifyStatuses = foldr classifyStatus ([], []) where
             Done {}   -> (c:lDone,   lFailed)
             Failed {} -> (  lDone, c:lFailed)
 
-executeTask :: Typeable vars => Bool -> Environment vars -> Task vars -> IO (Bool, Environment vars)
-executeTask keep_going env task@(Task targets sources action sign) = do
-    (result, env) <- runReaderT (runStateT action env) task
-    unless result do
-        putStrLn $ "hons: *** " ++ show task ++ ": task failed"
-        unless keep_going do
-            throwIO TaskFailed
-    return (result, env)
+executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
+executeTask env task@(Task targets sources action sign) = do
+    runReaderT (runStateT action env) task
 
 signTask :: Environment vars -> Task vars -> IO [ByteString]
 signTask env task@(Task targets sources action sign) =
@@ -104,8 +99,12 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                                 Nothing -> (HM.insert t new_var cache, new_var)
                                         var <- if new_var == cached_var then do
                                             (result, result_env) <- parallel_limiter do
-                                                executeTask settings.keepGoing source_env t
+                                                executeTask source_env t
                                             wasRebuilt decider node result signature
+                                            unless result do
+                                                putStrLn $ "hons: *** " ++ show t ++ ": task failed"
+                                                unless settings.keepGoing do
+                                                    throwIO TaskFailed
                                             (if result then returnSuccess result_env else returnFail) >>= putMVar new_var
                                             return new_var
                                         else
