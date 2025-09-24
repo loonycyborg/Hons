@@ -8,6 +8,27 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import Taskmaster
 
+data InvocOpts = InvocOpts {
+    file :: String,
+    chdir :: Maybe String
+}
+
+invocOpts = InvocOpts <$>
+    option str (
+            long "file" <>
+            short 'f' <>
+            metavar "FILE" <>
+            help "Use FILE as Honstruct file" <>
+            value "Honstruct" <>
+            showDefault
+    ) <*>
+    optional (option str $
+        long "directory" <>
+        short 'C' <>
+        metavar "DIR" <>
+        help "Change to directory DIR before doing anything"
+    )
+
 taskmasterOpts = TaskmasterSettings <$>
         lastOfMany nConc (option auto $
             long "jobs" <>
@@ -26,7 +47,9 @@ taskmasterOpts = TaskmasterSettings <$>
             help "Even after a failure continue to build other targets that don't depend on failed targets"
         )
 
-opts = info (taskmasterOpts <**> helper)
+allOpts = (,) <$> invocOpts <*> taskmasterOpts
+
+opts = info (allOpts <**> helper)
         (  fullDesc
         <> header "Hons - build automation tool")
 

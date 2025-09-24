@@ -48,9 +48,10 @@ findEnv = liftIO do
 
 pPrint :: (Show a, MonadIO m) => a -> m ()
 pPrint = liftIO . print
-hons_prelude = stringToStringBuffer "module Honstruct (project) where\nimport Hons\nimport qualified Tool.CC as CC\n{-# LINE 1 \"Honstruct\" #-}\n"
-hons_epilogue = stringToStringBuffer "\nproject :: Project\nproject = Project (makeEnv env) rules"
+honsPrelude = stringToStringBuffer "module Honstruct (project) where\nimport Hons\nimport qualified Tool.CC as CC\n{-# LINE 1 \"Honstruct\" #-}\n"
+honsEpilogue = stringToStringBuffer "\nproject :: Project\nproject = Project (makeEnv env) rules"
 main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
+    (invoc_settings, taskmaster_settings) <- execParser opts
     runGhc (Just libdir) do
         logger <- getLogger
         env <- findEnv
@@ -62,11 +63,12 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
             , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments ] `difference` fromList [FieldSelectors]
             , packageEnv = env }
         setSessionDynFlags dflags
-        let script_file = "Honstruct"
+        let script_file = invoc_settings.file
         src <- liftIO do
+            mapM_ setCurrentDirectory invoc_settings.chdir
             src <- hGetStringBuffer script_file >>=
-                   appendStringBuffers hons_prelude >>=
-                   flip appendStringBuffers hons_epilogue
+                   appendStringBuffers honsPrelude >>=
+                   flip appendStringBuffers honsEpilogue
             t <- getCurrentTime
             return $ Just (src,t)
         let target = Target (TargetFile script_file Nothing) True dflags.homeUnitId_ src
@@ -74,10 +76,9 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         load LoadAllTargets
         setContext [ IIModule $ mkModuleName "Honstruct" ]
         v <- compileExpr "project"
-        liftIO $ do_build $ unsafeCoerce v
+        liftIO $ doBuild taskmaster_settings $ unsafeCoerce v
 
-do_build (Project e r) = do
-    settings <- execParser opts
+doBuild settings (Project e r) = do
     print settings
     let g = r.graph
     let t = r.tasks
