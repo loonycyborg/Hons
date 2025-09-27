@@ -10,7 +10,8 @@ import Taskmaster
 
 data InvocOpts = InvocOpts {
     file :: String,
-    chdir :: Maybe String
+    chdir :: Maybe String,
+    cmdlineTargets :: [String]
 }
 
 invocOpts = InvocOpts <$>
@@ -27,6 +28,9 @@ invocOpts = InvocOpts <$>
         short 'C' <>
         metavar "DIR" <>
         help "Change to directory DIR before doing anything"
+    ) <*>
+    many (argument str $
+        metavar "TARGET"
     )
 
 taskmasterOpts = TaskmasterSettings <$>

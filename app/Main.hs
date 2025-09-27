@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, GADTs, QuasiQuotes #-}
+{-# LANGUAGE BlockArguments, GADTs #-}
 import GHC
 import GHC.Data.StringBuffer
 import GHC.Paths ( libdir )
@@ -29,6 +29,7 @@ import Project
 import Node
 import DepGraph
 import Taskmaster
+import Builder (depends)
 
 import Options
 
@@ -49,7 +50,7 @@ findEnv = liftIO do
 pPrint :: (Show a, MonadIO m) => a -> m ()
 pPrint = liftIO . print
 honsPrelude = stringToStringBuffer "module Honstruct (project) where\nimport Hons\nimport qualified Tool.CC as CC\n{-# LINE 1 \"Honstruct\" #-}\n"
-honsEpilogue = stringToStringBuffer "\nproject :: Project\nproject = Project (makeEnv env) rules"
+honsEpilogue = stringToStringBuffer "\nproject :: Project\nproject = Project (makeEnv env) rules (toList defaultTargets)"
 main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
     (invoc_settings, taskmaster_settings) <- execParser opts
     runGhc (Just libdir) do
@@ -76,14 +77,20 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         load LoadAllTargets
         setContext [ IIModule $ mkModuleName "Honstruct" ]
         v <- compileExpr "project"
-        liftIO $ doBuild taskmaster_settings $ unsafeCoerce v
+        liftIO $ doBuild taskmaster_settings invoc_settings.cmdlineTargets $ unsafeCoerce v
 
-doBuild settings (Project e r) = do
+doBuild settings target_strings (Project e r default_targets) = do
     print settings
     let g = r.graph
     let t = r.tasks
     writeFile "graph.dot" (exportViaShow g)
     print t
-    let goal = [fs|example/hello|]
-    result <- build settings r e goal
+    let targets = if null target_strings then
+            default_targets
+        else
+            map (resolveTarget g) target_strings
+    let goal_graph = r <> depends goal targets
+    result <- build settings goal_graph e goal
+    when (null targets) do
+        print "hons: warning: no targets built because no targets in command line and no default targets in build script"
     bool exitFailure exitSuccess result

@@ -3,8 +3,7 @@
 module Node where
 import System.OsPath
 import System.Directory.OsPath
-import Algebra.Graph.ToGraph ( ToGraph(ToVertex, toGraph) )
-import Algebra.Graph
+import Algebra.Graph.AdjacencyMap
 import GHC.IO (unsafePerformIO)
 import Data.Hashable ( Hashable(hashWithSalt) )
 import Language.Haskell.TH.Quote ( QuasiQuoter(..) )
@@ -71,6 +70,12 @@ encodeFilename fn = do
         fail $ "Invalid file path: " ++ show p
     return p
 
+resolveTarget :: AdjacencyMap Node -> FilePath -> Node
+resolveTarget graph target = node where
+    f_node = mkFsNode (unsafePerformIO $ encodeFilename target)
+    node | hasVertex f_node graph = f_node
+         | otherwise = error $ "Don't know how to build target: " ++ target
+
 {-# NOINLINE baseDir #-}
 baseDir :: OsPath
 baseDir = unsafePerformIO . canonicalizePath . unsafeEncodeUtf $ "."
@@ -80,6 +85,8 @@ mkAlias :: String -> Node
 mkAlias a = ValueNode a "" EDropOverrides
 mkValue :: String -> Node
 mkValue name = ValueNode name name EIdentity
+goal :: Node
+goal = mkValue "goal"
 mkPropagator :: EnvTransform a => String -> a -> Node
 mkPropagator name = ValueNode name name
 

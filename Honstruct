@@ -32,3 +32,5 @@ o = CC.compile [fs|example/hello.o|] [fs|example/hello.c|]
 prog = CC.link [fs|example/hello|] [fs|example/hello.o|]
 
 rules = o <> prog <> prule <> r
+
+defaultTargets = [fs|example/hello|]
