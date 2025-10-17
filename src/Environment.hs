@@ -9,7 +9,7 @@
 module Environment where
 import qualified Data.HashMap.Strict as HM
 import Data.List
-import Data.Text.Short as TS
+import qualified Data.Text.Short as TS
 import Data.Maybe
 import Data.Type.Equality
 import Type.Reflection
@@ -20,18 +20,28 @@ import qualified Control.Monad.Trans.State.Strict as State
 import GHC.TypeLits
 import GHC.Base (liftM2)
 import Language.Haskell.TH (Extension(RankNTypes, FlexibleContexts))
-import qualified Data.Text.Short as TS
+
+data VarName = LocalVar Symbol | Symbol :. Symbol
+
+class VarNameVal (n :: VarName) where
+  varNameVal :: String
+
+instance KnownSymbol s => VarNameVal (LocalVar s) where
+  varNameVal = symbolVal (Proxy @s)
+
+instance (KnownSymbol ns, KnownSymbol v) => VarNameVal (ns :. v) where
+  varNameVal = intercalate "." [symbolVal $ Proxy @ns, symbolVal $ Proxy @v]
 
 type EnvProto :: [Type] -> Type
 data EnvProto xs where
   EnvNihil :: EnvProto '[]
-  (:+:)    :: (x ~ Tagged (a :: Symbol) b, KnownSymbol a, ConstructionVariable b) => x -> EnvProto xs -> EnvProto (x : xs)
+  (:+:)    :: (x ~ Tagged (a :: VarName) b, VarNameVal a, ConstructionVariable b) => x -> EnvProto xs -> EnvProto (x : xs)
 infixr 5 :+:
 
-envVar :: forall (s :: Symbol) a . KnownSymbol s => a -> Tagged s a
-envVar (x :: a) = Tagged x :: Tagged s a
+envVar :: forall (n :: VarName) a . VarNameVal n => a -> Tagged n a
+envVar (x :: a) = Tagged x :: Tagged n a
 
-type LookupType :: Symbol -> [Type] -> Type
+type LookupType :: VarName -> [Type] -> Type
 type family LookupType s a where
   LookupType s (Tagged s x ': xs) = x
   LookupType s (x ': xs) = LookupType s xs
@@ -65,8 +75,8 @@ castVarHolder (VarHolder x :: b) = case testEquality (typeOf x) (TypeRep @a) of 
 mergeVarHolder :: VarHolder -> VarHolder -> VarHolder
 mergeVarHolder (VarHolder x) (VarHolder y) = case testEquality (typeOf x) (typeOf y) of Just Refl -> VarHolder $ merge x y
 
-tsSymbol :: forall (s :: Symbol) . KnownSymbol s => TS.ShortText
-tsSymbol = pack $ symbolVal (Proxy @s)
+tsSymbol :: forall (n :: VarName) . VarNameVal n => TS.ShortText
+tsSymbol = TS.pack $ varNameVal @n
 
 eProtoMap :: (forall t . (ConstructionVariable t) => t -> VarHolder) -> EnvProto vars -> ProtoMap
 eProtoMap _ EnvNihil = HM.empty
@@ -79,24 +89,24 @@ data Environment vars where
 
 instance Show (Environment vars) where
   show env = if HM.null env.overrides then "{}" else "{" ++ foldr1 (\x y -> x ++ ", " ++ y) (HM.mapWithKey stringify env.overrides) ++ "}" where
-    stringify k v = unpack k ++ ": " ++ show v
+    stringify k v = TS.unpack k ++ ": " ++ show v
 
 makeEnv :: EnvProto vars -> Environment vars
 makeEnv proto = Environment proto (eProtoMap VarHolder proto) HM.empty
 
-eLookup :: forall (s :: Symbol) {vars} {a} . (ConstructionVariable a, KnownSymbol s, a ~ LookupType s vars) => Environment vars -> a
+eLookup :: forall (n :: VarName) {vars} {a} . (ConstructionVariable a, VarNameVal n, a ~ LookupType n vars) => Environment vars -> a
 eLookup env =
   let
-    var = tsSymbol @s
+    var = tsSymbol @n
     override = HM.lookup var env.overrides
     value = fromMaybe (fromJust $ HM.lookup var env.defaults) override
   in
     castVarHolder value
 
-eUpdate :: forall (s :: Symbol) {vars} {a} . (ConstructionVariable a, KnownSymbol s, a ~ LookupType s vars) => (a -> Maybe a) -> Environment vars -> Environment vars
+eUpdate :: forall (n :: VarName) {vars} {a} . (ConstructionVariable a, VarNameVal n, a ~ LookupType n vars) => (a -> Maybe a) -> Environment vars -> Environment vars
 eUpdate f env =
   let
-    var = tsSymbol @s
+    var = tsSymbol @n
     def = castVarHolder @a $ env.defaults HM.! var
     alter v =
       let prev_val = maybe def (castVarHolder @a) v
@@ -106,8 +116,8 @@ eUpdate f env =
     in
       Environment env.prototype env.defaults (HM.alter alter var env.overrides)
 
-eReplace :: forall (s :: Symbol) {vars} {v} . (ConstructionVariable v, KnownSymbol s,  v ~ LookupType s vars) => v -> Environment vars -> Environment vars
-eReplace v = eUpdate @s (\_-> Just v)
+eReplace :: forall (n :: VarName) {vars} {v} . (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars) => v -> Environment vars -> Environment vars
+eReplace v = eUpdate @n (\_-> Just v)
 
 class (Eq a, Typeable a, Show a) => ConstructionVariable a where
   merge :: a -> a -> a

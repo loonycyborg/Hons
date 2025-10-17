@@ -2,9 +2,9 @@ import qualified Data.List.NonEmpty as NE
 import Data.Foldable (Foldable(fold))
 
 env =
-  CC.toolEnv                                    +:
-  envVar @"jobs"       (0 :: Int)              :+:
-  envVar @"switch"     (Nothing :: Maybe Bool) :+:
+  CC.toolEnv                                               +:
+  envVar @(LocalVar "jobs")       (0 :: Int)              :+:
+  envVar @(LocalVar "switch")     (Nothing :: Maybe Bool) :+:
   EnvNihil
 
 targets = [filelist|prog|]
@@ -22,7 +22,7 @@ r = p <> fold (NE.zipWith mkO objects sources)
 
 prule =
   propagate "test1" [fs|example/hello.c|] $
-    eReplace @"switch" (Just True)
+    eReplace @(LocalVar "switch") (Just True)
 
 cyc = command sources targets (return True) (return [])
 

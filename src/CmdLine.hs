@@ -99,8 +99,8 @@ execute = fmap success . liftIO . spawnCmdPrint
 expandForSignature :: CmdLine -> [ByteString]
 expandForSignature = toList . fmap (fromShort . getPosixString . toPosix) . expand
 
-subst :: forall (s :: Symbol) {vars} {a} . (LookupType s vars ~ a, ConstructionVariable a, ?e::(Environment vars), KnownSymbol s) => a
-subst = eLookup @s ?e
+subst :: forall (n :: VarName) {vars} {a} . (LookupType n vars ~ a, ConstructionVariable a, ?e::(Environment vars), VarNameVal n) => a
+subst = eLookup @n ?e
 
 substT :: (?t::Task vars) => NE.NonEmpty Node
 substT = targets where Task targets _ _ _ = ?t
