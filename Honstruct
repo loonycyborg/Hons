@@ -22,7 +22,7 @@ r = p <> fold (NE.zipWith mkO objects sources)
 
 prule =
   propagate "test1" [fs|example/hello.c|] $
-    eReplace @(LocalVar "switch") (Just True)
+    eReplace (LocalVar "switch") (Just True)
 
 cyc = command sources targets (return True) (return [])
 

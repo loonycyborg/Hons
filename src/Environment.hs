@@ -3,7 +3,8 @@
   TypeFamilies,
   UndecidableInstances,
   OverloadedRecordDot,
-  AllowAmbiguousTypes
+  AllowAmbiguousTypes,
+  RequiredTypeArguments
 #-}
 
 module Environment where
@@ -19,7 +20,7 @@ import Data.Proxy
 import qualified Control.Monad.Trans.State.Strict as State
 import GHC.TypeLits
 import GHC.Base (liftM2)
-import Language.Haskell.TH (Extension(RankNTypes, FlexibleContexts))
+import Language.Haskell.TH (Extension(RankNTypes, FlexibleContexts, RequiredTypeArguments))
 
 data VarName = LocalVar Symbol | Symbol :. Symbol
 
@@ -75,13 +76,13 @@ castVarHolder (VarHolder x :: b) = case testEquality (typeOf x) (TypeRep @a) of 
 mergeVarHolder :: VarHolder -> VarHolder -> VarHolder
 mergeVarHolder (VarHolder x) (VarHolder y) = case testEquality (typeOf x) (typeOf y) of Just Refl -> VarHolder $ merge x y
 
-tsSymbol :: forall (n :: VarName) . VarNameVal n => TS.ShortText
-tsSymbol = TS.pack $ varNameVal @n
+tsSymbol :: forall (n :: VarName) -> VarNameVal n => TS.ShortText
+tsSymbol n = TS.pack $ varNameVal @n
 
 eProtoMap :: (forall t . (ConstructionVariable t) => t -> VarHolder) -> EnvProto vars -> ProtoMap
 eProtoMap _ EnvNihil = HM.empty
 eProtoMap m (x :+: next) = HM.insert eName eValue (eProtoMap m next) where
-  eTerm (Tagged v :: Tagged s tv) = (tsSymbol @s, m v)
+  eTerm (Tagged v :: Tagged s tv) = (tsSymbol s, m v)
   (eName, eValue) = eTerm x
 
 data Environment vars where
@@ -94,19 +95,19 @@ instance Show (Environment vars) where
 makeEnv :: EnvProto vars -> Environment vars
 makeEnv proto = Environment proto (eProtoMap VarHolder proto) HM.empty
 
-eLookup :: forall (n :: VarName) {vars} {a} . (ConstructionVariable a, VarNameVal n, a ~ LookupType n vars) => Environment vars -> a
-eLookup env =
+eLookup :: forall {vars} {a} . forall (n :: VarName) -> (ConstructionVariable a, VarNameVal n, a ~ LookupType n vars) => Environment vars -> a
+eLookup n env =
   let
-    var = tsSymbol @n
+    var = tsSymbol n
     override = HM.lookup var env.overrides
     value = fromMaybe (fromJust $ HM.lookup var env.defaults) override
   in
     castVarHolder value
 
-eUpdate :: forall (n :: VarName) {vars} {a} . (ConstructionVariable a, VarNameVal n, a ~ LookupType n vars) => (a -> Maybe a) -> Environment vars -> Environment vars
-eUpdate f env =
+eUpdate :: forall {vars} {a} . forall (n :: VarName) -> (ConstructionVariable a, VarNameVal n, a ~ LookupType n vars) => (a -> Maybe a) -> Environment vars -> Environment vars
+eUpdate n f env =
   let
-    var = tsSymbol @n
+    var = tsSymbol n
     def = castVarHolder @a $ env.defaults HM.! var
     alter v =
       let prev_val = maybe def (castVarHolder @a) v
@@ -116,8 +117,8 @@ eUpdate f env =
     in
       Environment env.prototype env.defaults (HM.alter alter var env.overrides)
 
-eReplace :: forall (n :: VarName) {vars} {v} . (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars) => v -> Environment vars -> Environment vars
-eReplace v = eUpdate @n (\_-> Just v)
+eReplace :: forall {vars} {v} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars) => v -> Environment vars -> Environment vars
+eReplace n v = eUpdate n (\_-> Just v)
 
 class (Eq a, Typeable a, Show a) => ConstructionVariable a where
   merge :: a -> a -> a
