@@ -24,6 +24,7 @@ library
     Project
     Taskmaster
     Tool.CC
+    ToolTH
 
   build-depends:
     algebraic-graphs >=0.7,

@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, DataKinds #-}
+{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -8,12 +8,14 @@ import Node
 import DepGraph
 import Data.Tagged
 
-type ToolVars = [Tagged ("cc" :. "com") String, Tagged ("cc" :. "linkcom") String]
-toolEnv :: EnvProto ToolVars
+import ToolTH
+
 toolEnv =
-  envVar "gcc" :+:
-  envVar "gcc" :+:
+  envVar @("cc" :. "com")     "gcc" :+:
+  envVar @("cc" :. "linkcom") "gcc" :+:
   EnvNihil
+
+$genToolVars
 
 data Flag where
     Compile :: Flag
