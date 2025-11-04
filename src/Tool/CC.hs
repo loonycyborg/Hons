@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell #-}
+{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -26,7 +26,7 @@ instance Argument Flag where
     toCmdLine (Output a) = encodeArg "-o" : toCmdLine a
 
 compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
-compile = osCommand $ Cmd (subst ("cc" :. "com")) :$ Compile :$ Output substT :$ substS
+compile = osCommand $ Cmd com :$ Compile :$ Output substT :$ substS
 
 link :: (UseEnv ToolVars vars, Argument s, NodeList s) => Node -> s -> RuleSet vars
-link = osCommand $ Cmd (subst ("cc" :. "linkcom")) :$ Output substT :$ substS
+link = osCommand $ Cmd linkcom :$ Output substT :$ substS
