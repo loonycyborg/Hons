@@ -66,7 +66,7 @@ instance Show CmdLine where
 
 expand :: CmdLine -> NE.NonEmpty OsString
 expand (Cmd a) = NE.fromList . toCmdLine $ a
-expand (as :$ a) = expand as <> NE.fromList (toCmdLine a)
+expand (as :$ a) = NE.appendList (expand as) (toCmdLine a)
 
 expandToStr (Cmd a) = intercalate (encodeArg " ") $ toCmdLine a
 expandToStr (as :$ a) = intercalate (encodeArg " ") $ expandToStr as : toCmdLine a
