@@ -167,7 +167,7 @@ instance EnvTransform EDropOverrides where
 instance Typeable vars => EnvTransform (Environment vars -> Environment vars) where
     eTransform (f :: Environment vars1 -> Environment vars1) (x :: Environment vars2) = case testEquality (TypeRep @vars1) (TypeRep @vars2) of
       Just Refl -> f x
-      Nothing -> error $ "Incompatible environments: \n" ++ show (TypeRep @(vars1)) ++ "\n And\n" ++ show (TypeRep @vars2)
+      Nothing -> error $ "Incompatible environments: \n" ++ show (TypeRep @vars1) ++ "\n And\n" ++ show (TypeRep @vars2)
 
 type ETransformer env = State.State env ()
 data EStateTransform = forall vars a . (Typeable vars, a ~ ETransformer (Environment vars)) => EStateTransform a
