@@ -41,6 +41,9 @@ instance Argument Int where
 instance Argument TS.ShortText where
     toCmdLine = (:[]) . encodeArg . TS.unpack
 
+instance Argument StrVar where
+    toCmdLine (StrVar a) = [a]
+
 instance Argument String where
     toCmdLine = (:[]) . encodeArg
 

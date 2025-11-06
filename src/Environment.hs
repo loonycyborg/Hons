@@ -21,6 +21,10 @@ import qualified Control.Monad.Trans.State.Strict as State
 import GHC.TypeLits
 import GHC.Base (liftM2)
 import Language.Haskell.TH (Extension(RankNTypes, FlexibleContexts, RequiredTypeArguments))
+import System.OsString (OsString, encodeLE)
+import Data.String
+import System.OsPath (encodeFS)
+import System.IO.Unsafe (unsafePerformIO)
 
 data VarName = LocalVar Symbol | Symbol :. Symbol
 
@@ -128,15 +132,19 @@ instance ConstructionVariable Bool where
   merge = exclusiveMerge
 instance ConstructionVariable Int where
   merge = exclusiveMerge
-instance ConstructionVariable String where
-  merge = exclusiveMerge
 instance ConstructionVariable a => ConstructionVariable (Maybe a) where
   merge = (<>)
-instance ConstructionVariable [String] where
-  merge = (++)
-
 instance {-# OVERLAPPABLE #-} ConstructionVariable a => Semigroup a where
   (<>) = merge
+
+newtype StrVar = StrVar OsString deriving (Eq, Show)
+instance ConstructionVariable StrVar where
+  merge = exclusiveMerge
+instance IsString StrVar where
+  fromString = StrVar . unsafePerformIO . encodeFS
+
+instance ConstructionVariable [StrVar] where
+  merge = (++)
 
 eMerge :: Environment vars -> Environment vars -> Environment vars
 eMerge env1 env2 = Environment env1.prototype env1.defaults $ HM.unionWithKey doMerge env1.overrides env2.overrides where
