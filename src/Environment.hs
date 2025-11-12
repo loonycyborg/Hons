@@ -88,9 +88,7 @@ tsSymbol n = TS.pack $ varNameVal @n
 
 eProtoMap :: (forall t . (ConstructionVariable t) => t -> VarHolder) -> EnvProto vars -> ProtoMap
 eProtoMap _ EnvNihil = HM.empty
-eProtoMap m (x :+: next) = HM.insert eName eValue (eProtoMap m next) where
-  eTerm (Tagged v :: Tagged s tv) = (tsSymbol s, m v)
-  (eName, eValue) = eTerm x
+eProtoMap m ((x :: Tagged n v) :+: next) = HM.insert (tsSymbol n) (m $ unTagged x) (eProtoMap m next)
 
 readerRegistry :: EnvProto vars -> HM.HashMap TS.ShortText (String -> VarHolder)
 readerRegistry EnvNihil = HM.empty
