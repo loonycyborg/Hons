@@ -86,13 +86,15 @@ mergeVarHolder (VarHolder x) (VarHolder y) = case testEquality (typeOf x) (typeO
 tsSymbol :: forall (n :: VarName) -> VarNameVal n => TS.ShortText
 tsSymbol n = TS.pack $ varNameVal @n
 
+eMap :: (forall t . (ConstructionVariable t) => t -> a) -> EnvProto vars -> HM.HashMap TS.ShortText a
+eMap _ EnvNihil = HM.empty
+eMap m ((x :: Tagged n v) :+: next) = HM.insert (tsSymbol n) (m $ unTagged x) (eMap m next)
+
 eProtoMap :: (forall t . (ConstructionVariable t) => t -> VarHolder) -> EnvProto vars -> ProtoMap
-eProtoMap _ EnvNihil = HM.empty
-eProtoMap m ((x :: Tagged n v) :+: next) = HM.insert (tsSymbol n) (m $ unTagged x) (eProtoMap m next)
+eProtoMap = eMap
 
 readerRegistry :: EnvProto vars -> HM.HashMap TS.ShortText (String -> VarHolder)
-readerRegistry EnvNihil = HM.empty
-readerRegistry ((x :: Tagged n v) :+: next) = HM.insert (tsSymbol n) (VarHolder . read @v) (readerRegistry next)
+readerRegistry = eMap (\(t :: v) -> VarHolder . read @v)
 
 parseVars :: EnvProto vars -> String -> ProtoMap
 parseVars proto input = foldr (uncurry HM.insert) HM.empty results where
