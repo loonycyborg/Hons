@@ -20,6 +20,9 @@ import Data.Proxy
 import qualified Control.Monad.Trans.State.Strict as State
 import GHC.TypeLits
 import GHC.Base (liftM2)
+import Text.Read
+import Data.Char
+import Text.ParserCombinators.ReadP
 import Language.Haskell.TH (Extension(RankNTypes, FlexibleContexts, RequiredTypeArguments))
 import System.OsString (OsString, encodeLE)
 import Data.String
@@ -89,6 +92,29 @@ eProtoMap m (x :+: next) = HM.insert eName eValue (eProtoMap m next) where
   eTerm (Tagged v :: Tagged s tv) = (tsSymbol s, m v)
   (eName, eValue) = eTerm x
 
+readerRegistry :: EnvProto vars -> HM.HashMap TS.ShortText (String -> VarHolder)
+readerRegistry EnvNihil = HM.empty
+readerRegistry ((x :: Tagged n v) :+: next) = HM.insert (tsSymbol n) (VarHolder . read @v) (readerRegistry next)
+
+parseVars :: EnvProto vars -> String -> ProtoMap
+parseVars proto input = foldr (uncurry HM.insert) HM.empty results where
+  [(results, "")] = readP_to_S (varParser proto) input
+  varParser proto = sepBy var (skipSpaces >> char '\n') <* eof
+  var = do
+    skipSpaces
+    var_name <- TS.pack <$> munch1 ((||) <$> isAlphaNum <*> (=='.'))
+    let reader = case HM.lookup var_name registry of
+          Just r -> r
+          _      -> error $ "Unknown variable: " <> TS.unpack var_name
+    skipSpaces
+    char '='
+    var_value <- munch1 (/='\n')
+    return (var_name, reader var_value)
+  registry = readerRegistry proto
+
+writeVars :: ProtoMap -> String
+writeVars protomap = intercalate "\n" $ map (\(k, v) -> TS.unpack k <> "=" <> show v) (HM.toList protomap)
+
 data Environment vars where
     Environment :: { prototype :: EnvProto vars, defaults :: ProtoMap, overrides :: ProtoMap } -> Environment vars
 
@@ -124,7 +150,7 @@ eUpdate n f env =
 eReplace :: forall {vars} {v} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars) => v -> Environment vars -> Environment vars
 eReplace n v = eUpdate n (\_-> Just v)
 
-class (Eq a, Typeable a, Show a) => ConstructionVariable a where
+class (Eq a, Typeable a, Show a, Read a) => ConstructionVariable a where
   merge :: a -> a -> a
 exclusiveMerge :: Eq a => a -> a -> a
 exclusiveMerge a b = if a == b then a else error "conflicting variable values"
@@ -142,6 +168,10 @@ instance ConstructionVariable StrVar where
   merge = exclusiveMerge
 instance IsString StrVar where
   fromString = StrVar . unsafePerformIO . encodeFS
+instance Read StrVar where
+  readPrec = parens $ prec 10 $ do
+    Ident "StrVar" <- lexP
+    fromString <$> readPrec @String
 
 instance ConstructionVariable [StrVar] where
   merge = (++)
