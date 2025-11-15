@@ -53,7 +53,7 @@ instance Argument a => Argument (Maybe a) where
 
 instance Argument Node where
     toCmdLine (FsNode f) = [f]
-    toCmdLine (ValueNode _ v _) = [encodeArg v]
+    toCmdLine (ValueNode _ v) = [encodeArg v]
 
 instance {-# OVERLAPPABLE #-} (Argument a, Foldable f) => Argument (f a) where
     toCmdLine = foldMap toCmdLine

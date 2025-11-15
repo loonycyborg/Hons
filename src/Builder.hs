@@ -20,9 +20,10 @@ command target source action sign = RuleSet (HM.fromList $ map (, task) tlist) (
     tlist = toList target
     slist = toList source
     task = Task (toNonEmpty target) slist action sign
-propagateG :: (NodeList a, EnvTransform p) => String -> a -> p -> RuleSet vars
-propagateG name targets action = mconcat $ map (`depends` propagator) (toList targets) where
-    propagator = mkPropagator name action
 
-propagate :: (NodeList a, Typeable vars) => String -> a -> (Environment vars -> Environment vars) -> RuleSet vars
-propagate = propagateG
+propagateIO :: (NodeList a, Typeable vars) =>  String -> a -> (Environment vars -> IO (Environment vars)) -> RuleSet vars
+propagateIO name targets transform = RuleSet (HM.singleton node (Propagator node transform)) (connect (vertices $ toList targets) (vertex node)) where
+    node = mkValue name
+
+propagate :: (NodeList a, Typeable vars) =>  String -> a -> (Environment vars -> Environment vars) -> RuleSet vars
+propagate name targets transform = propagateIO name targets (pure . transform)

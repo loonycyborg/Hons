@@ -179,28 +179,3 @@ instance ConstructionVariable [StrVar] where
 eMerge :: Environment vars -> Environment vars -> Environment vars
 eMerge env1 env2 = Environment env1.prototype env1.defaults $ HM.unionWithKey doMerge env1.overrides env2.overrides where
   doMerge k = mergeVarHolder
-
-class EnvTransform a where
-  eTransform :: Typeable vars => a -> Environment vars -> Environment vars
-
-data EIdentity = EIdentity deriving Show
-instance EnvTransform EIdentity where
-  eTransform x = id
-
-eDropOverrides :: Environment vars -> Environment vars
-eDropOverrides (Environment vars defaults _) = Environment vars defaults HM.empty
-
-data EDropOverrides = EDropOverrides
-instance EnvTransform EDropOverrides where
-  eTransform x = eDropOverrides
-
-instance Typeable vars => EnvTransform (Environment vars -> Environment vars) where
-    eTransform (f :: Environment vars1 -> Environment vars1) (x :: Environment vars2) = case testEquality (TypeRep @vars1) (TypeRep @vars2) of
-      Just Refl -> f x
-      Nothing -> error $ "Incompatible environments: \n" ++ show (TypeRep @vars1) ++ "\n And\n" ++ show (TypeRep @vars2)
-
-type ETransformer env = State.State env ()
-data EStateTransform = forall vars a . (Typeable vars, a ~ ETransformer (Environment vars)) => EStateTransform a
-
-instance EnvTransform EStateTransform where
-  eTransform (EStateTransform (st :: ETransformer env1)) (env :: env2) = case testEquality (TypeRep @env1) (TypeRep @env2) of Just Refl -> State.execState st env

@@ -51,10 +51,6 @@ signTask :: Environment vars -> Task vars -> IO [ByteString]
 signTask env task@(Task targets sources action sign) =
     fst <$> runReaderT (runStateT sign env) task
 
-transformWithNode :: Typeable vars => Node -> Environment vars -> Environment vars
-transformWithNode (ValueNode _ _ tr) = eTransform tr
-transformWithNode (FsNode _) = eTransform EIdentity
-
 build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO Bool
 build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -> do
     task_cache <- newIORef HM.empty
@@ -65,56 +61,51 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
         buildNode xs       _     _     ((b:_):bs) = fail $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
         buildNode (node:_) tsrcs osrcs []         = do
             let srcs = tsrcs <> osrcs
-            case (srcs, node `HM.lookup` ruleset.tasks) of
-                ([], task) -> do
-                    when (isJust task) do
-                        fail $ "Invalid task without sources for target " ++ show node
-                    Right <$> returnSuccess (transformWithNode node env)
-                (_, task) -> do
-                    allsrcs <- sequence srcs
-                    let (pending, complete) = partitionEithers allsrcs
-                    let (done, failed) = classifyStatuses complete
-                    evaluateNode allsrcs pending done failed
-                    where
-                    evaluateNode allsrcs (_:_) done       _     = do
-                        Left <$> async do
-                            (async_done, async_failed) <- classifyStatuses <$> mapM (either wait return) allsrcs
-                            actualize $ evaluateNode allsrcs [] async_done async_failed
-                    evaluateNode _       []    _          (_:_) = Right <$> returnFail
-                    evaluateNode _       []    done@(_:_) []    = do
-                        let source_env = foldr1 eMerge $ map (.env) done
-                        case task of
-                            Nothing -> Right <$> returnSuccess (transformWithNode node source_env)
-                            Just t  -> do
-                                let sources_changed = mconcat $ map (.changed) done
-                                signature <- signTask source_env t
-                                needs_rebuild <- needsRebuild decider node signature
-                                case (sources_changed, needs_rebuild || settings.alwaysMake) of
-                                    (Unchanged, False) -> Right <$> returnSuccess source_env
-                                    _                  -> Left  <$> async do
-                                        new_var <- newEmptyMVar
-                                        cached_var <- atomicModifyIORef' task_cache \cache ->
-                                            case HM.lookup t cache of
-                                                Just st -> (cache, st)
-                                                Nothing -> (HM.insert t new_var cache, new_var)
-                                        var <- if new_var == cached_var then do
-                                            (result, result_env) <- parallel_limiter do
-                                                executeTask source_env t
-                                            wasRebuilt decider node result signature
-                                            unless result do
-                                                putStrLn $ "hons: *** " ++ show t ++ ": task failed"
-                                                unless settings.keepGoing do
-                                                    throwIO TaskFailed
-                                            (if result then returnSuccess result_env else returnFail) >>= putMVar new_var
-                                            return new_var
-                                        else
-                                            return cached_var
-                                        readMVar var
+            allsrcs <- sequence srcs
+            let (pending, complete) = partitionEithers allsrcs
+            let (done, failed) = classifyStatuses complete
+            evaluateNode allsrcs pending done failed
             where
-            returnFail = return $ Failed node
-            returnSuccess env = do
-                changed <- decideNode decider node
-                return $ Done node env changed
+                task = node `HM.lookup` ruleset.tasks
+                evaluateNode allsrcs (_:_) done _     = do
+                    Left <$> async do
+                        (async_done, async_failed) <- classifyStatuses <$> mapM (either wait return) allsrcs
+                        actualize $ evaluateNode allsrcs [] async_done async_failed
+                evaluateNode _       []    _    (_:_) = Right <$> returnFail
+                evaluateNode _       []    done []    = do
+                    let source_env = if null done then env else foldr1 eMerge $ map (.env) done
+                    case task of
+                        Nothing                       -> Right <$> returnSuccess source_env
+                        Just (Propagator _ transform) -> Right <$> (transform source_env >>= returnSuccess)
+                        Just t@(Task {})              -> do
+                            let sources_changed = mconcat $ map (.changed) done
+                            signature <- signTask source_env t
+                            needs_rebuild <- needsRebuild decider node signature
+                            case (sources_changed, needs_rebuild || settings.alwaysMake) of
+                                (Unchanged, False) -> Right <$> returnSuccess source_env
+                                _                  -> Left  <$> async do
+                                    new_var <- newEmptyMVar
+                                    cached_var <- atomicModifyIORef' task_cache \cache ->
+                                        case HM.lookup t cache of
+                                            Just st -> (cache, st)
+                                            Nothing -> (HM.insert t new_var cache, new_var)
+                                    var <- if new_var == cached_var then do
+                                        (result, result_env) <- parallel_limiter do
+                                            executeTask source_env t
+                                        wasRebuilt decider node result signature
+                                        unless result do
+                                            putStrLn $ "hons: *** " ++ show t ++ ": task failed"
+                                            unless settings.keepGoing do
+                                                throwIO TaskFailed
+                                        (if result then returnSuccess result_env else returnFail) >>= putMVar new_var
+                                        return new_var
+                                    else
+                                        return cached_var
+                                    readMVar var
+                returnFail = return $ Failed node
+                returnSuccess env = do
+                    changed <- decideNode decider node
+                    return $ Done node env changed
         actualize a = do
             result <- a
             case result of Right status -> return status

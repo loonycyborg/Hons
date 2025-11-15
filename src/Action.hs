@@ -16,6 +16,7 @@ type Action vars = (ActionM vars) Bool
 
 data Task vars where
     Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars, sign :: (ActionM vars) [ByteString] } -> Task vars
+    Propagator :: Node -> (Environment vars -> IO (Environment vars)) -> Task vars
 
 instance Eq (Task vars) where
     (==) :: Task vars -> Task vars -> Bool
@@ -23,6 +24,7 @@ instance Eq (Task vars) where
 
 instance Show (Task vars) where
     show (Task targets _ _ _) = "[[[" ++ (show . L.head $ targets) ++ "]]]"
+    show (Propagator target _) = "[[[Propagator " ++ show target ++ "]]]"
 
 instance Hashable (Task vars) where
     hashWithSalt salt t = hashWithSalt salt t.targets
