@@ -99,6 +99,14 @@ success _ = False
 execute :: MonadIO m => CmdLine -> m Bool
 execute = fmap success . liftIO . spawnCmdPrint
 
+inTaskContext :: ((?e::Environment vars, ?t::Task vars) => ActionM vars a) -> ActionM vars a
+inTaskContext action = do
+    env <- getenv
+    task <- gett
+    let ?e = env
+    let ?t = task
+    action
+
 expandForSignature :: CmdLine -> [ByteString]
 expandForSignature = toList . fmap (fromShort . getPosixString . toPosix) . expand
 
@@ -111,17 +119,10 @@ substT = targets where Task targets _ _ _ = ?t
 substS :: (?t::Task vars) => [Node]
 substS = sources where Task _ sources _ _ = ?t
 
+osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars Bool
+osExecute cmdline = inTaskContext do execute cmdline
+
 osCommand :: (NodeListNonEmpty a, NodeList b) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
 osCommand cmdline target source = command target source
-        do
-            env <- getenv
-            task <- gett
-            let ?e = env
-                ?t = task
-            execute cmdline
-        do
-            env <- getenv
-            task <- gett
-            let ?e = env
-                ?t = task
-            return $ expandForSignature cmdline
+    (osExecute cmdline)
+    (inTaskContext $ return $ expandForSignature cmdline)
