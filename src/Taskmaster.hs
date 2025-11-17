@@ -76,7 +76,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) done
                     case task of
                         Nothing                       -> Right <$> returnSuccess source_env
-                        Just (Propagator _ transform) -> Right <$> (transform source_env >>= returnSuccess)
+                        Just (Propagator _ transform) -> Right <$> (transform source_env >>= returnSuccessResult)
                         Just t@(Task {})              -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t
@@ -103,8 +103,9 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                         return cached_var
                                     readMVar var
                 returnFail = return $ Failed node
-                returnSuccess env = do
-                    changed <- decideNode decider node
+                returnSuccess = returnSuccessResult . (, noResult)
+                returnSuccessResult (env, result) = do
+                    changed <- decideNode decider node result
                     return $ Done node env changed
         actualize a = do
             result <- a

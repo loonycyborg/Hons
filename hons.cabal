@@ -13,6 +13,7 @@ library
   ghc-options: -threaded -O2
   exposed-modules:
     Action
+    Argument
     Builder
     CmdLine
     Db

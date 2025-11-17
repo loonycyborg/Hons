@@ -1,6 +1,6 @@
 {-# LANGUAGE BlockArguments, ImplicitParams, DataKinds, AllowAmbiguousTypes, RequiredTypeArguments #-}
 
-module CmdLine where
+module CmdLine (module CmdLine, module Argument) where
 
 import System.OsString
     ( OsString, coercionToPlatformTypes, intercalate )
@@ -11,7 +11,6 @@ import System.Posix.Process.PosixString
 import qualified Data.Text.Short as TS
 import qualified Data.List.NonEmpty as NE
 
-import System.IO.Unsafe ( unsafePerformIO )
 import Data.Type.Coercion ( coerceWith )
 import Data.Foldable ( Foldable(toList), concat )
 import GHC.IO.Exception (ExitCode(..))
@@ -28,35 +27,7 @@ import Action (Action, getenv, ActionM, gett, Task (Task))
 import Decider (toPosix)
 import DepGraph (RuleSet)
 import Builder (command)
-
-{-# NOINLINE encodeArg #-}
-encodeArg = unsafePerformIO . encodeFS
-
-class Argument a where
-    toCmdLine :: a -> [OsString]
-
-instance Argument Int where
-    toCmdLine = (:[]) . encodeArg . show
-
-instance Argument TS.ShortText where
-    toCmdLine = (:[]) . encodeArg . TS.unpack
-
-instance Argument StrVar where
-    toCmdLine (StrVar a) = [a]
-
-instance Argument String where
-    toCmdLine = (:[]) . encodeArg
-
-instance Argument a => Argument (Maybe a) where
-    toCmdLine (Just a) = toCmdLine a
-    toCmdLine Nothing = []
-
-instance Argument Node where
-    toCmdLine (FsNode f) = [f]
-    toCmdLine (ValueNode _ v) = [encodeArg v]
-
-instance {-# OVERLAPPABLE #-} (Argument a, Foldable f) => Argument (f a) where
-    toCmdLine = foldMap toCmdLine
+import Argument
 
 data CmdLine where
     Cmd  :: Argument a => a -> CmdLine

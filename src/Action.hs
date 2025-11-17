@@ -7,16 +7,21 @@ import Control.Monad.Trans.Class
 
 import Node
 import Environment
+import Argument
 import Data.List.NonEmpty as L
 import Data.ByteString (ByteString)
 import Data.Hashable
 
 type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
 type Action vars = (ActionM vars) Bool
+type Evaluator vars = Environment vars -> IO (Environment vars, EvalResult)
 
 data Task vars where
     Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars, sign :: (ActionM vars) [ByteString] } -> Task vars
-    Propagator :: Node -> (Environment vars -> IO (Environment vars)) -> Task vars
+    Propagator :: Node -> Evaluator vars -> Task vars
+
+data EvalResult = forall a . Argument a => EvalResult a
+noResult = EvalResult NoArg
 
 instance Eq (Task vars) where
     (==) :: Task vars -> Task vars -> Bool

@@ -10,11 +10,13 @@ import Database.SQLite.Simple
 import qualified Data.Text as T
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Encoding as BE
+import Data.ByteString.Short (fromShort)
 import qualified Data.HashMap.Strict as HM
 import System.OsPath
 import System.OsString ( coercionToPlatformTypes )
 import System.File.OsPath ( readFile' )
 import System.Posix.Files.PosixString
+import System.OsString.Internal.Types (PosixString(getPosixString))
 import Data.Time.Clock (nominalDiffTimeToSeconds)
 import Data.Time.Clock.POSIX
 import qualified Crypto.Hash.MD5 as MD5
@@ -23,6 +25,8 @@ import System.IO.Unsafe
 
 import Node
 import Db
+import Action (EvalResult (EvalResult), noResult)
+import Argument
 
 data DeciderContext = DeciderContext {
     dbCache :: IORef (HM.HashMap Node (Maybe Nodes)),
@@ -94,9 +98,9 @@ instance Semigroup Ruling where
 instance Monoid Ruling where
     mempty = Unchanged
 
-decideNode :: DeciderContext -> Node -> IO Ruling
-decideNode context node = do
-    (prevMetaData, newMetadata) <- syncDb context node Nothing
+decideNode :: DeciderContext -> Node -> EvalResult -> IO Ruling
+decideNode context node result = do
+    (prevMetaData, newMetadata) <- syncDb context node Nothing result
     return $ fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
 
 needsRebuild :: DeciderContext -> Node -> [B.ByteString] -> IO Bool
@@ -111,13 +115,13 @@ needsRebuild decider (ValueNode {}) _ = return False
 
 wasRebuilt :: DeciderContext -> Node -> Bool -> [B.ByteString] -> IO ()
 wasRebuilt context node status signature = do
-    void $ syncDb context node (Just $ TaskMetaData status $ hashSignature signature)
+    void $ syncDb context node (Just $ TaskMetaData status $ hashSignature signature) noResult
 
-syncDb :: DeciderContext -> Node -> Maybe TaskMetaData -> IO (Maybe MetaData, MetaData)
-syncDb context node task_metadata = do
+syncDb :: DeciderContext -> Node -> Maybe TaskMetaData -> EvalResult -> IO (Maybe MetaData, MetaData)
+syncDb context node task_metadata result = do
     prevNode <- getNodeInfoCached context node
     let prevMetaData = fromDb <$> prevNode
-    newMetadata <- buildNewMetadata node
+    newMetadata <- buildNewMetadata node result
     let prev_task_metadata = fromDbTask <$> prevNode
     let skip_update = or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata
     let skip_task_update = isNothing task_metadata || Just task_metadata == prev_task_metadata
@@ -139,8 +143,8 @@ getNodeInfoCached context node = do
 updateNodeInfoCache :: DeciderContext -> Node -> Maybe Nodes -> IO ()
 updateNodeInfoCache context node ni = modifyIORef context.dbCache $ HM.insert node ni
 
-buildNewMetadata :: Node -> IO MetaData
-buildNewMetadata (FsNode path) = do
+buildNewMetadata :: Node -> EvalResult -> IO MetaData
+buildNewMetadata (FsNode path) _ = do
     exists <- fileExist $ toPosix path
     case exists of
         True -> do
@@ -149,7 +153,7 @@ buildNewMetadata (FsNode path) = do
                 MD5.hash <$> readFile' path
             return $ MetaData (mkTimestamp $ modificationTimeHiRes fStatus) signature
         False -> return Nonexistent
-buildNewMetadata (ValueNode _ value) = return $ ValMetaData $ MD5.hash $ BE.encode BE.utf8 $ T.pack value
+buildNewMetadata (ValueNode _ _) result = return $ ValMetaData $ hashResult result
 
 updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> Maybe TaskMetaData -> IO ()
 updateDb context node prevNode newMetadata newTaskMetadata = do
@@ -167,6 +171,9 @@ hashSignature []    = Nothing
 hashSignature parts = Just $ MD5.finalize ctx where
     ctx  = foldl MD5.update ctx0 parts
     ctx0 = MD5.init
+
+hashResult :: EvalResult -> B.ByteString
+hashResult (EvalResult result) = fromJust $ hashSignature $ fromShort . getPosixString . toPosix <$> toCmdLine result
 
 toPosix path = case coercionToPlatformTypes of
     Right (_, coercion) -> coerceWith coercion path
