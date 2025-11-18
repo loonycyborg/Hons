@@ -78,7 +78,7 @@ dbName :: Node -> (T.Text, T.Text)
 dbName (FsNode path) = unsafePerformIO do
                          p <- decodeFS path
                          pure (T.pack "fs",    T.pack p)
-dbName (ValueNode name _) = (T.pack "value", T.pack name)
+dbName (ValueNode name) = (T.pack "value", T.pack name)
 
 fromDb :: Nodes -> MetaData
 fromDb (Nodes _ _ _ nodeType name existed timestamp signature _ _)
@@ -153,7 +153,7 @@ buildNewMetadata (FsNode path) _ = do
                 MD5.hash <$> readFile' path
             return $ MetaData (mkTimestamp $ modificationTimeHiRes fStatus) signature
         False -> return Nonexistent
-buildNewMetadata (ValueNode _ _) result = return $ ValMetaData $ hashResult result
+buildNewMetadata (ValueNode _) result = return $ ValMetaData $ hashResult result
 
 updateDb :: DeciderContext -> Node -> Maybe Nodes -> MetaData -> Maybe TaskMetaData -> IO ()
 updateDb context node prevNode newMetadata newTaskMetadata = do

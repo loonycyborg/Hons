@@ -15,17 +15,17 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class
 
 data Node where
-    ValueNode :: { name :: String, value :: String } -> Node
+    ValueNode :: { name :: String } -> Node
     FsNode :: { path :: OsPath } -> Node
     deriving (Eq, Ord, Lift)
 
 instance Show Node where
-    show (ValueNode n _) = "value:" <> n
+    show (ValueNode n) = "value:" <> n
     show (FsNode p) = "fs:" <> unsafePerformIO (decodeFilename p)
 
 instance Hashable Node where
     hashWithSalt salt (FsNode path) = hashWithSalt salt path
-    hashWithSalt salt (ValueNode name _) = hashWithSalt salt name
+    hashWithSalt salt (ValueNode name) = hashWithSalt salt name
 
 class NodeList l where
     toList :: l -> [Node]
@@ -67,7 +67,7 @@ baseDir = unsafePerformIO . canonicalizePath . unsafeEncodeUtf $ "."
 mkFsNode :: OsPath -> Node
 mkFsNode = FsNode . makeRelative baseDir . unsafePerformIO . canonicalizePath
 mkValue :: String -> Node
-mkValue name = ValueNode name name
+mkValue = ValueNode
 goal :: Node
 goal = mkValue "goal"
 
