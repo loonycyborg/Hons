@@ -22,21 +22,21 @@ toolEnv =
 $genToolVars
 
 data Flag where
-    Literal :: Argument a => a -> Flag
+    Literal :: Value a => a -> Flag
     Compile :: Flag
-    Output  :: Argument a => a -> Flag
-    CPPPath :: Argument a => a -> Flag
-    LibPath :: Argument a => a -> Flag
+    Output  :: Value a => a -> Flag
+    CPPPath :: Value a => a -> Flag
+    LibPath :: Value a => a -> Flag
 
-instance Argument Flag where
+instance Value Flag where
     toCmdLine (Literal as) = toCmdLine as
-    toCmdLine Compile = [encodeArg "-c"]
-    toCmdLine (Output a) = encodeArg "-o" : toCmdLine a
-    toCmdLine (CPPPath as) = (encodeArg "-I"<>) <$> toCmdLine as
-    toCmdLine (LibPath as) = (encodeArg "-L"<>) <$> toCmdLine as
+    toCmdLine Compile = [encodeVal "-c"]
+    toCmdLine (Output a) = encodeVal "-o" : toCmdLine a
+    toCmdLine (CPPPath as) = (encodeVal "-I"<>) <$> toCmdLine as
+    toCmdLine (LibPath as) = (encodeVal "-L"<>) <$> toCmdLine as
 
 compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
 compile = osCommand $ Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ Compile :$ Output substT :$ substS
 
-link :: (UseEnv ToolVars vars, Argument s, NodeList s) => Node -> s -> RuleSet vars
+link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
 link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Output substT :$ substS

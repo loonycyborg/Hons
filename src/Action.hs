@@ -7,7 +7,7 @@ import Control.Monad.Trans.Class
 
 import Node
 import Environment
-import Argument
+import Value
 import Data.List.NonEmpty as L
 import Data.ByteString (ByteString)
 import Data.Hashable
@@ -20,8 +20,8 @@ data Task vars where
     Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars, sign :: (ActionM vars) [ByteString] } -> Task vars
     Propagator :: Node -> Evaluator vars -> Task vars
 
-data EvalResult = forall a . Argument a => EvalResult a
-noResult = EvalResult NoArg
+data EvalResult = forall a . Value a => EvalResult a
+noResult = EvalResult NoVal
 
 instance Eq (Task vars) where
     (==) :: Task vars -> Task vars -> Bool

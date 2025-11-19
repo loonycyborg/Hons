@@ -1,6 +1,6 @@
 {-# LANGUAGE BlockArguments, ImplicitParams, DataKinds, AllowAmbiguousTypes, RequiredTypeArguments #-}
 
-module CmdLine (module CmdLine, module Argument) where
+module CmdLine (module CmdLine, module Value) where
 
 import System.OsString
     ( OsString, coercionToPlatformTypes, intercalate )
@@ -27,11 +27,11 @@ import Action (Action, getenv, ActionM, gett, Task (Task))
 import Decider (toPosix)
 import DepGraph (RuleSet)
 import Builder (command)
-import Argument
+import Value
 
 data CmdLine where
-    Cmd  :: Argument a => a -> CmdLine
-    (:$) :: Argument a => CmdLine -> a -> CmdLine
+    Cmd  :: Value a => a -> CmdLine
+    (:$) :: Value a => CmdLine -> a -> CmdLine
 infixl 5 :$
 
 instance Show CmdLine where
@@ -42,8 +42,8 @@ expand :: CmdLine -> NE.NonEmpty OsString
 expand (Cmd a) = NE.fromList . toCmdLine $ a
 expand (as :$ a) = NE.appendList (expand as) (toCmdLine a)
 
-expandToStr (Cmd a) = intercalate (encodeArg " ") $ toCmdLine a
-expandToStr (as :$ a) = intercalate (encodeArg " ") $ expandToStr as : toCmdLine a
+expandToStr (Cmd a) = intercalate (encodeVal " ") $ toCmdLine a
+expandToStr (as :$ a) = intercalate (encodeVal " ") $ expandToStr as : toCmdLine a
 
 spawn :: NE.NonEmpty PosixString -> IO ProcessStatus
 spawn (cmd NE.:| args) = do
