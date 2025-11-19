@@ -5,18 +5,14 @@ import Data.Int (Int32, Int64)
 import Data.Maybe
 import Control.Monad
 import Control.Exception
-import Data.Type.Coercion
 import Database.SQLite.Simple
 import qualified Data.Text as T
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Encoding as BE
 import Data.ByteString.Short (fromShort)
 import qualified Data.HashMap.Strict as HM
 import System.OsPath
-import System.OsString ( coercionToPlatformTypes )
 import System.File.OsPath ( readFile' )
 import System.Posix.Files.PosixString
-import System.OsString.Internal.Types (PosixString(getPosixString))
 import Data.Time.Clock (nominalDiffTimeToSeconds)
 import Data.Time.Clock.POSIX
 import qualified Crypto.Hash.MD5 as MD5
@@ -173,10 +169,7 @@ hashSignature parts = Just $ MD5.finalize ctx where
     ctx0 = MD5.init
 
 hashResult :: EvalResult -> B.ByteString
-hashResult (EvalResult result) = fromJust $ hashSignature $ fromShort . getPosixString . toPosix <$> toCmdLine result
-
-toPosix path = case coercionToPlatformTypes of
-    Right (_, coercion) -> coerceWith coercion path
+hashResult (EvalResult result) = fromMaybe B.empty $ hashSignature $ toSignature result
 
 gainTimestamp :: IO Int64
 gainTimestamp = mkTimestamp <$> getPOSIXTime

@@ -17,14 +17,11 @@ import GHC.IO.Exception (ExitCode(..))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC.TypeLits (Symbol, KnownSymbol)
 import Data.Kind (Type)
-import System.OsString.Internal.Types (PosixString(getPosixString))
 import Data.ByteString (ByteString)
-import Data.ByteString.Short (fromShort)
 
 import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList )
 import Environment
 import Action (Action, getenv, ActionM, gett, Task (Task))
-import Decider (toPosix)
 import DepGraph (RuleSet)
 import Builder (command)
 import Value
@@ -37,6 +34,9 @@ infixl 5 :$
 instance Show CmdLine where
     show (Cmd a) = show (toCmdLine a)
     show (as :$ a) = show as ++ " " ++ show (toCmdLine a)
+
+instance Value CmdLine where
+    toCmdLine = NE.toList . expand
 
 expand :: CmdLine -> NE.NonEmpty OsString
 expand (Cmd a) = NE.fromList . toCmdLine $ a
@@ -78,9 +78,6 @@ inTaskContext action = do
     let ?t = task
     action
 
-expandForSignature :: CmdLine -> [ByteString]
-expandForSignature = toList . fmap (fromShort . getPosixString . toPosix) . expand
-
 subst :: forall {vars} {a} . forall (n :: VarName) -> (LookupType n vars ~ a, ConstructionVariable a, ?e::(Environment vars), VarNameVal n) => a
 subst n = eLookup n ?e
 
@@ -96,4 +93,4 @@ osExecute cmdline = inTaskContext do execute cmdline
 osCommand :: (NodeListNonEmpty a, NodeList b) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
 osCommand cmdline target source = command target source
     (osExecute cmdline)
-    (inTaskContext $ return $ expandForSignature cmdline)
+    (inTaskContext $ return $ toSignature cmdline)
