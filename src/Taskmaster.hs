@@ -76,7 +76,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) done
                     case task of
                         Nothing                       -> Right <$> returnSuccess source_env
-                        Just (Propagator _ transform) -> Right <$> (transform source_env >>= returnSuccessResult)
+                        Just (Propagator _ transform) -> Right <$> (transform source_env >>= returnSuccessEval)
                         Just t@(Task {})              -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t
@@ -92,20 +92,22 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                     var <- if new_var == cached_var then do
                                         (result, result_env) <- parallel_limiter do
                                             executeTask source_env t
-                                        wasRebuilt decider node result signature
+                                        changed <- wasRebuilt decider node result signature
                                         unless result do
                                             putStrLn $ "hons: *** " ++ show t ++ ": task failed"
                                             unless settings.keepGoing do
                                                 throwIO TaskFailed
-                                        (if result then returnSuccess result_env else returnFail) >>= putMVar new_var
+                                        (if result then returnSuccessRebuilt result_env changed else returnFail) >>= putMVar new_var
                                         return new_var
                                     else
                                         return cached_var
                                     readMVar var
                 returnFail = return $ Failed node
-                returnSuccess = returnSuccessResult . (, noResult)
-                returnSuccessResult (env, result) = do
-                    changed <- decideNode decider node result
+                returnSuccessRebuilt             = returnSuccessG (\_ _ changed -> pure changed)
+                returnSuccessEval (env, result)  = returnSuccessG wasEvaluated                   env result
+                returnSuccess env                = returnSuccessG decideNode                     env Nothing
+                returnSuccessG f env arg = do
+                    changed <- f decider node arg
                     return $ Done node env changed
         actualize a = do
             result <- a

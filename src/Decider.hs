@@ -94,9 +94,9 @@ instance Semigroup Ruling where
 instance Monoid Ruling where
     mempty = Unchanged
 
-decideNode :: DeciderContext -> Node -> EvalResult -> IO Ruling
+decideNode :: DeciderContext -> Node -> Maybe (Either EvalResult TaskMetaData) -> IO Ruling
 decideNode context node result = do
-    (prevMetaData, newMetadata) <- syncDb context node Nothing result
+    (prevMetaData, newMetadata) <- syncDb context node result
     return $ fromMaybe Changed $ nodeChanged <$> prevMetaData <*> Just newMetadata
 
 needsRebuild :: DeciderContext -> Node -> [B.ByteString] -> IO Bool
@@ -109,14 +109,20 @@ needsRebuild decider node@(FsNode path) task_signature = do
     return $ not prevResult || not exists || signature /= prevSignature
 needsRebuild decider (ValueNode {}) _ = return False
 
-wasRebuilt :: DeciderContext -> Node -> Bool -> [B.ByteString] -> IO ()
+wasRebuilt :: DeciderContext -> Node -> Bool -> [B.ByteString] -> IO Ruling
 wasRebuilt context node status signature = do
-    void $ syncDb context node (Just $ TaskMetaData status $ hashSignature signature) noResult
+    decideNode context node (Just . Right $ TaskMetaData status $ hashSignature signature)
 
-syncDb :: DeciderContext -> Node -> Maybe TaskMetaData -> EvalResult -> IO (Maybe MetaData, MetaData)
-syncDb context node task_metadata result = do
+wasEvaluated :: DeciderContext -> Node -> EvalResult -> IO Ruling
+wasEvaluated context node result = do
+    decideNode context node $ Just . Left $ result
+
+syncDb :: DeciderContext -> Node -> Maybe (Either EvalResult TaskMetaData) -> IO (Maybe MetaData, MetaData)
+syncDb context node task_result = do
     prevNode <- getNodeInfoCached context node
     let prevMetaData = fromDb <$> prevNode
+    let result = fromMaybe noResult (either Just (const Nothing) =<< task_result)
+    let task_metadata = either (const Nothing) Just =<< task_result
     newMetadata <- buildNewMetadata node result
     let prev_task_metadata = fromDbTask <$> prevNode
     let skip_update = or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata
