@@ -8,7 +8,7 @@ import System.OsString.Posix ( PosixString )
 import System.OsPath ( decodeFS)
 import System.Posix.Process.PosixString
     ( forkProcess, executeFile, getProcessStatus, ProcessStatus(..) )
-import System.Posix.PosixString (createPipe, dupTo, fdRead, closeFd)
+import System.Posix.PosixString (createPipe, dupTo, fdRead, closeFd, createFile, stdFileMode)
 import qualified System.Posix.PosixString
 import qualified Data.Text.Short as TS
 import qualified Data.List.NonEmpty as NE
@@ -37,13 +37,17 @@ import Value
 data CmdLine where
     Cmd  :: Value a => a -> CmdLine
     (:$) :: Value a => CmdLine -> a -> CmdLine
-    (:>) :: CmdLine -> Fd -> CmdLine
+    (:>) :: CmdLine -> (Fd, OsString) -> CmdLine
+    (:|) :: CmdLine -> Fd -> CmdLine
 infixl 5 :$
+infixl 5 :>
+infixl 5 :|
 
 instance Show CmdLine where
     show (Cmd a) = show (toCmdLine a)
     show (as :$ a) = show as ++ " " ++ show (toCmdLine a)
-    show (as :> n) = show as ++ " >" ++ show n ++ " <pipe>"
+    show (as :> (fd, file)) = show as ++ " " ++ show (fromEnum fd) ++ "> " ++ show file
+    show (as :| fd) = show as ++ " |" ++ show (fromEnum fd)
 
 instance Value CmdLine where
     toCmdLine = NE.toList . fst . expand
@@ -60,11 +64,13 @@ stdin = Fd System.Posix.PosixString.stdInput
 expand :: CmdLine -> (NE.NonEmpty OsString, HM.HashMap Fd Redirect)
 expand (Cmd a) = (NE.fromList . toCmdLine $ a, HM.empty)
 expand (as :$ a) = first (`NE.appendList` toCmdLine a) (expand as)
-expand (as :> fd) = HM.insert fd ToPipe <$> expand as
+expand (as :> (fd, file)) = HM.insert fd (ToFile file) <$> expand as
+expand (as :| fd) = HM.insert fd ToPipe <$> expand as
 
 expandToStr (Cmd a) = intercalate (encodeVal " ") $ toCmdLine a
 expandToStr (as :$ a) = intercalate (encodeVal " ") $ expandToStr as : toCmdLine a
-expandToStr (as :> a) = expandToStr as <> encodeVal " >" <> encodeVal (show a) <> encodeVal " <pipe>"
+expandToStr (as :> (fd, file)) = expandToStr as <> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "> " <> file
+expandToStr (as :| fd) = expandToStr as <> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "|"
 
 spawn :: NE.NonEmpty PosixString -> HM.HashMap Fd Redirect -> IO ProcessStatus
 spawn (cmd NE.:| args) redirects = do
@@ -73,7 +79,11 @@ spawn (cmd NE.:| args) redirects = do
             ToPipe -> do
                 (readFd, writeFd) <- createPipe
                 return (Just (readFd, writeFd), dupTo writeFd fd.fd >> closeFd writeFd >> closeFd readFd)
-            _      -> do return (Nothing, return ())
+            ToFile file -> do return (Nothing, do
+                                fileFd <- createFile (toPosix file) stdFileMode
+                                dupTo fileFd fd.fd
+                                closeFd fileFd
+                                )
     pid <- forkProcess do
         traverse_ snd redirect_actions
         executeFile cmd (isRelative cmd) args Nothing
@@ -83,7 +93,7 @@ spawn (cmd NE.:| args) redirects = do
                     chunk <- fdRead fd 4096
                     reader $ chunk : l
                 (\(e :: IOException) -> return l)
-        foldr1 (<>) . reverse <$> reader []
+        foldr1 (<>) . reverse <$> reader [] <* closeFd fd
     Just result <- getProcessStatus True False pid
     return result
 
