@@ -5,19 +5,27 @@ module CmdLine (module CmdLine, module Value) where
 import System.OsString
     ( OsString, coercionToPlatformTypes, intercalate )
 import System.OsString.Posix ( PosixString )
-import System.OsPath ( encodeFS, decodeFS)
+import System.OsPath ( decodeFS)
 import System.Posix.Process.PosixString
     ( forkProcess, executeFile, getProcessStatus, ProcessStatus(..) )
+import System.Posix.PosixString (createPipe, dupTo, fdRead, closeFd)
+import qualified System.Posix.PosixString
 import qualified Data.Text.Short as TS
 import qualified Data.List.NonEmpty as NE
-
+import qualified Data.HashMap.Strict as HM
+import Data.Bifunctor
+import Data.Hashable
+import Data.Traversable (for)
+import Control.Exception (catch, IOException)
 import Data.Type.Coercion ( coerceWith )
-import Data.Foldable ( Foldable(toList), concat )
+import Data.Foldable ( traverse_ )
 import GHC.IO.Exception (ExitCode(..))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC.TypeLits (Symbol, KnownSymbol)
 import Data.Kind (Type)
 import Data.ByteString (ByteString)
+import System.OsPath.Posix (isRelative)
+import qualified System.Posix.Types
 
 import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList )
 import Environment
@@ -29,41 +37,71 @@ import Value
 data CmdLine where
     Cmd  :: Value a => a -> CmdLine
     (:$) :: Value a => CmdLine -> a -> CmdLine
+    (:>) :: CmdLine -> Fd -> CmdLine
 infixl 5 :$
 
 instance Show CmdLine where
     show (Cmd a) = show (toCmdLine a)
     show (as :$ a) = show as ++ " " ++ show (toCmdLine a)
+    show (as :> n) = show as ++ " >" ++ show n ++ " <pipe>"
 
 instance Value CmdLine where
-    toCmdLine = NE.toList . expand
+    toCmdLine = NE.toList . fst . expand
 
-expand :: CmdLine -> NE.NonEmpty OsString
-expand (Cmd a) = NE.fromList . toCmdLine $ a
-expand (as :$ a) = NE.appendList (expand as) (toCmdLine a)
+data Redirect = ToPipe | ToFile OsString
+newtype Fd = Fd { fd :: System.Posix.Types.Fd } deriving (Eq, Show, Enum)
+instance Hashable Fd where
+    hashWithSalt n a = hashWithSalt n (fromEnum a)
+
+stdout = Fd System.Posix.PosixString.stdOutput
+stderr = Fd System.Posix.PosixString.stdError
+stdin = Fd System.Posix.PosixString.stdInput
+
+expand :: CmdLine -> (NE.NonEmpty OsString, HM.HashMap Fd Redirect)
+expand (Cmd a) = (NE.fromList . toCmdLine $ a, HM.empty)
+expand (as :$ a) = first (`NE.appendList` toCmdLine a) (expand as)
+expand (as :> fd) = HM.insert fd ToPipe <$> expand as
 
 expandToStr (Cmd a) = intercalate (encodeVal " ") $ toCmdLine a
 expandToStr (as :$ a) = intercalate (encodeVal " ") $ expandToStr as : toCmdLine a
+expandToStr (as :> a) = expandToStr as <> encodeVal " >" <> encodeVal (show a) <> encodeVal " <pipe>"
 
-spawn :: NE.NonEmpty PosixString -> IO ProcessStatus
-spawn (cmd NE.:| args) = do
+spawn :: NE.NonEmpty PosixString -> HM.HashMap Fd Redirect -> IO ProcessStatus
+spawn (cmd NE.:| args) redirects = do
+    redirect_actions <- flip HM.traverseWithKey redirects \fd redirect ->
+        case redirect of
+            ToPipe -> do
+                (readFd, writeFd) <- createPipe
+                return (Just (readFd, writeFd), dupTo writeFd fd.fd >> closeFd writeFd >> closeFd readFd)
+            _      -> do return (Nothing, return ())
     pid <- forkProcess do
-        executeFile cmd True args Nothing
+        traverse_ snd redirect_actions
+        executeFile cmd (isRelative cmd) args Nothing
+    outputs <- for (HM.mapMaybe fst redirect_actions) \(fd, writeFd) -> do
+        closeFd writeFd
+        let reader l = catch do
+                    chunk <- fdRead fd 4096
+                    reader $ chunk : l
+                (\(e :: IOException) -> return l)
+        foldr1 (<>) . reverse <$> reader []
     Just result <- getProcessStatus True False pid
     return result
 
 spawnCmd :: CmdLine -> IO ProcessStatus
 spawnCmd cmdline =
-    let args = expand cmdline
+    let (args, redirects) = expand cmdline
     in
         case coercionToPlatformTypes of
-            Right (_, coercion) -> spawn $ fmap (coerceWith coercion) args
+            Right (_, coercion) -> do
+                spawn (coerceWith coercion <$> args) redirects
 
+spawnCmdPrint :: CmdLine -> IO ProcessStatus
 spawnCmdPrint cmdline = do
     str <- decodeFS . expandToStr $ cmdline
     putStrLn str
     spawnCmd cmdline
 
+success :: ProcessStatus -> Bool
 success (Exited ExitSuccess) = True
 success _ = False
 
