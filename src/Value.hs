@@ -5,10 +5,10 @@ import qualified Data.List.NonEmpty as NE
 import System.OsPath
 import System.IO.Unsafe ( unsafePerformIO )
 import System.OsString ( coercionToPlatformTypes )
-import System.OsString.Internal.Types (PosixString(getPosixString))
+import System.OsString.Internal.Types (PosixString(getPosixString, PosixString), OsString(OsString))
 import Data.Type.Coercion
 import Data.ByteString (ByteString)
-import Data.ByteString.Short (fromShort)
+import Data.ByteString.Short (fromShort, toShort)
 
 import Node
 import Environment
@@ -51,3 +51,5 @@ instance {-# OVERLAPPABLE #-} (Value a, Foldable f) => Value (f a) where
 
 toPosix path = case coercionToPlatformTypes of
     Right (_, coercion) -> coerceWith coercion path
+
+fromNativeBS str = OsString $ PosixString $ toShort str

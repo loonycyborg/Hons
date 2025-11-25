@@ -19,11 +19,12 @@ import Data.Traversable (for)
 import Control.Exception (catch, IOException)
 import Data.Type.Coercion ( coerceWith )
 import Data.Foldable ( traverse_ )
+import Data.Maybe (isJust)
 import GHC.IO.Exception (ExitCode(..))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC.TypeLits (Symbol, KnownSymbol)
 import Data.Kind (Type)
-import Data.ByteString (ByteString)
+import Data.ByteString (ByteString, empty)
 import System.OsPath.Posix (isRelative)
 import qualified System.Posix.Types
 
@@ -72,7 +73,7 @@ expandToStr (as :$ a) = intercalate (encodeVal " ") $ expandToStr as : toCmdLine
 expandToStr (as :> (fd, file)) = expandToStr as <> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "> " <> file
 expandToStr (as :| fd) = expandToStr as <> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "|"
 
-spawn :: NE.NonEmpty PosixString -> HM.HashMap Fd Redirect -> IO ProcessStatus
+spawn :: NE.NonEmpty PosixString -> HM.HashMap Fd Redirect -> IO (ProcessStatus, HM.HashMap Fd OsString)
 spawn (cmd NE.:| args) redirects = do
     redirect_actions <- flip HM.traverseWithKey redirects \fd redirect ->
         case redirect of
@@ -93,11 +94,11 @@ spawn (cmd NE.:| args) redirects = do
                     chunk <- fdRead fd 4096
                     reader $ chunk : l
                 (\(e :: IOException) -> return l)
-        foldr1 (<>) . reverse <$> reader [] <* closeFd fd
+        fromNativeBS . foldr (<>) empty . reverse <$> reader [] <* closeFd fd
     Just result <- getProcessStatus True False pid
-    return result
+    return (result, outputs)
 
-spawnCmd :: CmdLine -> IO ProcessStatus
+spawnCmd :: CmdLine -> IO (ProcessStatus, HM.HashMap Fd OsString)
 spawnCmd cmdline =
     let (args, redirects) = expand cmdline
     in
@@ -105,7 +106,7 @@ spawnCmd cmdline =
             Right (_, coercion) -> do
                 spawn (coerceWith coercion <$> args) redirects
 
-spawnCmdPrint :: CmdLine -> IO ProcessStatus
+spawnCmdPrint :: CmdLine -> IO (ProcessStatus, HM.HashMap Fd OsString)
 spawnCmdPrint cmdline = do
     str <- decodeFS . expandToStr $ cmdline
     putStrLn str
@@ -115,8 +116,10 @@ success :: ProcessStatus -> Bool
 success (Exited ExitSuccess) = True
 success _ = False
 
-execute :: MonadIO m => CmdLine -> m Bool
-execute = fmap success . liftIO . spawnCmdPrint
+execute :: MonadIO m => CmdLine -> m (Maybe (HM.HashMap Fd OsString))
+execute cmdline = do
+    (result, output) <- liftIO $ spawnCmdPrint cmdline
+    return if success result then Just output else Nothing
 
 inTaskContext :: ((?e::Environment vars, ?t::Task vars) => ActionM vars a) -> ActionM vars a
 inTaskContext action = do
@@ -135,10 +138,10 @@ substT = targets where Task targets _ _ _ = ?t
 substS :: (?t::Task vars) => [Node]
 substS = sources where Task _ sources _ _ = ?t
 
-osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars Bool
+osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars (Maybe (HM.HashMap Fd OsString))
 osExecute cmdline = inTaskContext do execute cmdline
 
 osCommand :: (NodeListNonEmpty a, NodeList b) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
 osCommand cmdline target source = command target source
-    (osExecute cmdline)
+    (isJust <$> osExecute cmdline)
     (inTaskContext $ return $ toSignature cmdline)
