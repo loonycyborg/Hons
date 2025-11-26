@@ -62,7 +62,10 @@ stdout = Fd System.Posix.PosixString.stdOutput
 stderr = Fd System.Posix.PosixString.stdError
 stdin = Fd System.Posix.PosixString.stdInput
 
-expand :: CmdLine -> (NE.NonEmpty OsString, HM.HashMap Fd Redirect)
+type Redirects = HM.HashMap Fd Redirect
+type CmdOutput = HM.HashMap Fd OsString
+
+expand :: CmdLine -> (NE.NonEmpty OsString, Redirects)
 expand (Cmd a) = (NE.fromList . toCmdLine $ a, HM.empty)
 expand (as :$ a) = first (`NE.appendList` toCmdLine a) (expand as)
 expand (as :> (fd, file)) = HM.insert fd (ToFile file) <$> expand as
@@ -73,7 +76,7 @@ expandToStr (as :$ a) = intercalate (encodeVal " ") $ expandToStr as : toCmdLine
 expandToStr (as :> (fd, file)) = expandToStr as <> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "> " <> file
 expandToStr (as :| fd) = expandToStr as <> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "|"
 
-spawn :: NE.NonEmpty PosixString -> HM.HashMap Fd Redirect -> IO (ProcessStatus, HM.HashMap Fd OsString)
+spawn :: NE.NonEmpty PosixString -> Redirects -> IO (ProcessStatus, CmdOutput)
 spawn (cmd NE.:| args) redirects = do
     redirect_actions <- flip HM.traverseWithKey redirects \fd redirect ->
         case redirect of
@@ -98,7 +101,7 @@ spawn (cmd NE.:| args) redirects = do
     Just result <- getProcessStatus True False pid
     return (result, outputs)
 
-spawnCmd :: CmdLine -> IO (ProcessStatus, HM.HashMap Fd OsString)
+spawnCmd :: CmdLine -> IO (ProcessStatus, CmdOutput)
 spawnCmd cmdline =
     let (args, redirects) = expand cmdline
     in
@@ -106,7 +109,7 @@ spawnCmd cmdline =
             Right (_, coercion) -> do
                 spawn (coerceWith coercion <$> args) redirects
 
-spawnCmdPrint :: CmdLine -> IO (ProcessStatus, HM.HashMap Fd OsString)
+spawnCmdPrint :: CmdLine -> IO (ProcessStatus, CmdOutput)
 spawnCmdPrint cmdline = do
     str <- decodeFS . expandToStr $ cmdline
     putStrLn str
@@ -116,7 +119,7 @@ success :: ProcessStatus -> Bool
 success (Exited ExitSuccess) = True
 success _ = False
 
-execute :: MonadIO m => CmdLine -> m (Maybe (HM.HashMap Fd OsString))
+execute :: MonadIO m => CmdLine -> m (Maybe CmdOutput)
 execute cmdline = do
     (result, output) <- liftIO $ spawnCmdPrint cmdline
     return if success result then Just output else Nothing
@@ -138,7 +141,7 @@ substT = targets where Task targets _ _ _ = ?t
 substS :: (?t::Task vars) => [Node]
 substS = sources where Task _ sources _ _ = ?t
 
-osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars (Maybe (HM.HashMap Fd OsString))
+osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars (Maybe CmdOutput)
 osExecute cmdline = inTaskContext do execute cmdline
 
 osCommand :: (NodeListNonEmpty a, NodeList b) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
