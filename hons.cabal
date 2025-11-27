@@ -32,7 +32,6 @@ library
     async,
     base,
     bytestring,
-    bytestring-encoding,
     containers,
     cryptohash-md5,
     directory,
