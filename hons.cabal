@@ -26,6 +26,10 @@ library
     Tool.CC
     ToolTH
     Value
+  other-modules:
+    CmdLineCompat
+    FileCompat
+    ValueCompat
 
   build-depends:
     algebraic-graphs >=0.7,
@@ -53,6 +57,8 @@ library
     unordered-containers,
 
   hs-source-dirs: src
+  if !os(windows)
+    hs-source-dirs: src/posix
   default-language: GHC2021
   default-extensions:
     NoFieldSelectors

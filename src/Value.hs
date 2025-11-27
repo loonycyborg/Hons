@@ -1,15 +1,12 @@
-module Value where
+module Value (module Value, fromNativeBS) where
 
 import qualified Data.Text.Short as TS
 import qualified Data.List.NonEmpty as NE
 import System.OsPath
 import System.IO.Unsafe ( unsafePerformIO )
-import System.OsString ( coercionToPlatformTypes )
-import System.OsString.Internal.Types (PosixString(getPosixString, PosixString), OsString(OsString))
-import Data.Type.Coercion
 import Data.ByteString (ByteString)
-import Data.ByteString.Short (fromShort, toShort)
 
+import ValueCompat
 import Node
 import Environment
 
@@ -19,7 +16,7 @@ encodeVal = unsafePerformIO . encodeFS
 class Value a where
     toCmdLine :: a -> [OsString]
     toSignature :: a -> [ByteString]
-    toSignature v = fromShort . getPosixString . toPosix <$> toCmdLine v
+    toSignature v = toNativeBS <$> toCmdLine v
 
 data NoVal = NoVal deriving (Show, Eq)
 instance Value NoVal where
@@ -48,8 +45,3 @@ instance Value Node where
 
 instance {-# OVERLAPPABLE #-} (Value a, Foldable f) => Value (f a) where
     toCmdLine = foldMap toCmdLine
-
-toPosix path = case coercionToPlatformTypes of
-    Right (_, coercion) -> coerceWith coercion path
-
-fromNativeBS str = OsString $ PosixString $ toShort str

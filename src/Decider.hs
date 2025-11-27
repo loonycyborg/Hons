@@ -12,9 +12,7 @@ import Data.ByteString.Short (fromShort)
 import qualified Data.HashMap.Strict as HM
 import System.OsPath
 import System.File.OsPath ( readFile' )
-import System.Posix.Files.PosixString
-import Data.Time.Clock (nominalDiffTimeToSeconds)
-import Data.Time.Clock.POSIX
+import System.Directory.OsPath (doesFileExist)
 import qualified Crypto.Hash.MD5 as MD5
 import Data.IORef
 import System.IO.Unsafe
@@ -23,6 +21,7 @@ import Node
 import Db
 import Action (EvalResult (EvalResult), noResult)
 import Value
+import FileCompat
 
 data DeciderContext = DeciderContext {
     dbCache :: IORef (HM.HashMap Node (Maybe Nodes)),
@@ -101,7 +100,7 @@ decideNode context node result = do
 
 needsRebuild :: DeciderContext -> Node -> [B.ByteString] -> IO Bool
 needsRebuild decider node@(FsNode path) task_signature = do
-    exists <- fileExist $ toPosix path
+    exists <- doesFileExist path
     prevNode <- getNodeInfoCached decider node
     let prevResult    = fromMaybe False $ (.task_status)    =<< prevNode
     let prevSignature =                   (.task_signature) =<< prevNode
@@ -147,13 +146,13 @@ updateNodeInfoCache context node ni = modifyIORef context.dbCache $ HM.insert no
 
 buildNewMetadata :: Node -> EvalResult -> IO MetaData
 buildNewMetadata (FsNode path) _ = do
-    exists <- fileExist $ toPosix path
+    exists <- doesFileExist path
     case exists of
         True -> do
-            fStatus <- getFileStatus $ toPosix path
+            timestamp <- timestampFile path
             signature <- unsafeInterleaveIO do
                 MD5.hash <$> readFile' path
-            return $ MetaData (mkTimestamp $ modificationTimeHiRes fStatus) signature
+            return $ MetaData timestamp signature
         False -> return Nonexistent
 buildNewMetadata (ValueNode _) result = return $ ValMetaData $ hashResult result
 
@@ -176,8 +175,3 @@ hashSignature parts = Just $ MD5.finalize ctx where
 
 hashResult :: EvalResult -> B.ByteString
 hashResult (EvalResult result) = fromMaybe B.empty $ hashSignature $ toSignature result
-
-gainTimestamp :: IO Int64
-gainTimestamp = mkTimestamp <$> getPOSIXTime
-
-mkTimestamp t = floor $ nominalDiffTimeToSeconds t * 1e9
