@@ -1,3 +1,4 @@
+{-# LANGUAGE ImplicitParams #-}
 module Action (module Action, module Control.Monad.Trans.State.Strict, module Control.Monad.Trans.Reader, liftIO) where
 import Control.Monad.Trans.State.Strict
     ( get, modify, put, StateT, runStateT )
@@ -14,7 +15,7 @@ import Data.Hashable
 
 type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
 type Action vars = (ActionM vars) Bool
-type Evaluator vars = Environment vars -> IO (Environment vars, EvalResult)
+type Evaluator vars = (?target :: Node) => Environment vars -> IO (Environment vars, EvalResult)
 
 data Task vars where
     Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars, sign :: (ActionM vars) [ByteString] } -> Task vars

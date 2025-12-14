@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedRecordDot, BlockArguments #-}
+{-# LANGUAGE OverloadedRecordDot, BlockArguments, ImplicitParams #-}
 module Taskmaster where
 import qualified Data.HashSet as HS
 import qualified Data.HashMap.Strict as HM
@@ -76,7 +76,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) done
                     case task of
                         Nothing                       -> Right <$> returnSuccess source_env
-                        Just (Propagator _ transform) -> Right <$> (transform source_env >>= returnSuccessEval)
+                        Just (Propagator _ transform) -> Right <$> (let ?target = node in transform source_env >>= returnSuccessEval)
                         Just t@(Task {})              -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t

@@ -4,7 +4,8 @@
   UndecidableInstances,
   OverloadedRecordDot,
   AllowAmbiguousTypes,
-  RequiredTypeArguments
+  RequiredTypeArguments,
+  ImplicitParams
 #-}
 
 module Environment where
@@ -20,6 +21,7 @@ import Data.Proxy
 import qualified Control.Monad.Trans.State.Strict as State
 import GHC.TypeLits
 import GHC.Base (liftM2)
+import GHC.IsList
 import Text.Read
 import Data.Char
 import Text.ParserCombinators.ReadP
@@ -28,6 +30,8 @@ import System.OsString (OsString, encodeLE)
 import Data.String
 import System.OsPath (encodeFS)
 import System.IO.Unsafe (unsafePerformIO)
+
+import Node (Node)
 
 data VarName = LocalVar Symbol | Symbol :. Symbol
 
@@ -150,6 +154,9 @@ eUpdate n f env =
 eReplace :: forall {vars} {v} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars) => v -> Environment vars -> Environment vars
 eReplace n v = eUpdate n (\_-> Just v)
 
+eInsertTS :: forall {vars} {v} {a} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars, v ~ TSList a, ?target::Node) => a -> Environment vars -> Environment vars
+eInsertTS n val = eUpdate n (Just . insertTS ?target val)
+
 class (Eq a, Typeable a, Show a, Read a) => ConstructionVariable a where
   merge :: a -> a -> a
 exclusiveMerge :: Eq a => a -> a -> a
@@ -175,6 +182,24 @@ instance Read StrVar where
 
 instance ConstructionVariable [StrVar] where
   merge = (++)
+
+newtype TSList a = TSList [(Node, a)] deriving (Eq, Show, Read, IsList)
+
+insertTS :: Node -> a -> TSList a -> TSList a
+insertTS n a (TSList xs) = TSList ((n,a):xs)
+
+instance (ConstructionVariable a) => ConstructionVariable (TSList a) where
+  merge (TSList xs) (TSList ys) = TSList $ go xs ys common where
+    common = map fst xs `intersect` map fst ys
+    go ((x,a):xs) ((y,b):ys) (c:cs) = case (x == c, y == c) of
+      (True, True) -> (x,a):go xs ys cs
+      (True, False) -> (y,b):go ((x,a):xs) ys (c:cs)
+      (False, True) -> (x,a):go xs ((y,b):ys) (c:cs)
+      (False, False) -> if x < y then
+        (x,a):go xs ((y,b):ys) (c:cs)
+        else
+        (y,b):go ((x,a):xs) ys (c:cs)
+    go xs yx [] = sortBy (\(x,_) (y,_) -> compare x y) xs <> yx
 
 eMerge :: Environment vars -> Environment vars -> Environment vars
 eMerge env1 env2 = Environment env1.prototype env1.defaults $ HM.unionWithKey doMerge env1.overrides env2.overrides where

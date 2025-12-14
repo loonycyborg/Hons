@@ -43,5 +43,9 @@ instance Value Node where
     toCmdLine (FsNode f) = [f]
     toCmdLine (ValueNode v) = [encodeVal v]
 
+instance Value a => Value (TSList a) where
+    toCmdLine (TSList ((x,a):xs)) = toCmdLine a <> toCmdLine (TSList xs)
+    toCmdLine (TSList []) = []
+
 instance {-# OVERLAPPABLE #-} (Value a, Foldable f) => Value (f a) where
     toCmdLine = foldMap toCmdLine

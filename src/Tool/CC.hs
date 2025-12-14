@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings #-}
+{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -12,11 +12,11 @@ import ToolTH
 
 toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar) :+:
-  envVar @("cc" :. "cflags")    ([] :: [StrVar])  :+:
-  envVar @("cc" :. "cpppath")   ([] :: [StrVar])  :+:
+  envVar @("cc" :. "cflags")    ([] :: TSList [StrVar])  :+:
+  envVar @("cc" :. "cpppath")   ([] :: TSList [StrVar])  :+:
   envVar @("cc" :. "linkcom")   ("gcc" :: StrVar) :+:
-  envVar @("cc" :. "linkflags") ([] :: [StrVar])  :+:
-  envVar @("cc" :. "libpath")   ([] :: [StrVar])  :+:
+  envVar @("cc" :. "linkflags") ([] :: TSList [StrVar])  :+:
+  envVar @("cc" :. "libpath")   ([] :: TSList [StrVar])  :+:
   EnvNihil
 
 $genToolVars

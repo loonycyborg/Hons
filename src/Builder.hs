@@ -1,3 +1,4 @@
+{-# LANGUAGE ImplicitParams #-}
 module Builder where
 import Algebra.Graph.AdjacencyMap
 import qualified Data.HashMap.Strict as HM
@@ -25,5 +26,5 @@ propagateIO :: (NodeList a, Typeable vars) =>  String -> a -> Evaluator vars -> 
 propagateIO name targets transform = RuleSet (HM.singleton node (Propagator node transform)) (connect (vertices $ toList targets) (vertex node)) where
     node = mkValue name
 
-propagate :: (NodeList a, Typeable vars) =>  String -> a -> (Environment vars -> Environment vars) -> RuleSet vars
+propagate :: (NodeList a, Typeable vars) =>  String -> a -> ((?target :: Node) => Environment vars -> Environment vars) -> RuleSet vars
 propagate name targets transform = propagateIO name targets (pure . (,noResult) . transform)

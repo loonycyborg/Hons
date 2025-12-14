@@ -13,6 +13,8 @@ import Data.Foldable1 (Foldable1 (foldMap1))
 import qualified Data.List.NonEmpty as NE
 import Control.Monad (unless)
 import Control.Monad.IO.Class
+import Text.Read hiding (lift)
+import Control.Applicative (Alternative((<|>)))
 
 data Node where
     ValueNode :: { name :: String } -> Node
@@ -22,6 +24,20 @@ data Node where
 instance Show Node where
     show (ValueNode n) = "value:" <> n
     show (FsNode p) = "fs:" <> unsafePerformIO (decodeFilename p)
+
+instance Read Node where
+  readPrec = parens $ prec 10 $ do
+    do
+        Ident "value" <- lexP
+        Symbol ":" <- lexP
+        Ident n <- lexP
+        return $ ValueNode n
+    <|>
+    do
+        Ident "fs" <- lexP
+        Symbol ":" <- lexP
+        Ident fname <- lexP
+        return $ mkFsNode $ unsafePerformIO (encodeFilename fname)
 
 instance Hashable Node where
     hashWithSalt salt (FsNode path) = hashWithSalt salt path
