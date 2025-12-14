@@ -51,6 +51,10 @@ signTask :: Environment vars -> Task vars -> IO [ByteString]
 signTask env task@(Task targets sources action sign) =
     fst <$> runReaderT (runStateT sign env) task
 
+executeEvaluator :: Environment vars -> Task vars -> IO (EvalResult, Environment vars)
+executeEvaluator env task@(Propagator target eval) = let ?target = target in do
+    runReaderT (runStateT eval env) task
+
 build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO Bool
 build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -> do
     task_cache <- newIORef HM.empty
@@ -75,9 +79,9 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                 evaluateNode _       []    done []    = do
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) done
                     case task of
-                        Nothing                       -> Right <$> returnSuccess source_env
-                        Just (Propagator _ transform) -> Right <$> (let ?target = node in transform source_env >>= returnSuccessEval)
-                        Just t@(Task {})              -> do
+                        Nothing                   -> Right <$> returnSuccess source_env
+                        Just eval@(Propagator {}) -> Right <$> (executeEvaluator source_env eval >>= returnSuccessEval)
+                        Just t@(Task {})          -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t
                             needs_rebuild <- needsRebuild decider node signature
@@ -104,7 +108,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                     readMVar var
                 returnFail = return $ Failed node
                 returnSuccessRebuilt             = returnSuccessG (\_ _ changed -> pure changed)
-                returnSuccessEval (env, result)  = returnSuccessG wasEvaluated                   env result
+                returnSuccessEval (result, env)  = returnSuccessG wasEvaluated                   env result
                 returnSuccess env                = returnSuccessG decideNode                     env Nothing
                 returnSuccessG f env arg = do
                     changed <- f decider node arg
