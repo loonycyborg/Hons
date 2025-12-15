@@ -12,6 +12,7 @@ import Data.Bifunctor
 import Data.Type.Coercion ( coerceWith )
 import Data.Maybe (isJust)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad (when)
 import GHC.TypeLits (Symbol, KnownSymbol)
 import Data.Kind (Type)
 
@@ -28,9 +29,11 @@ data CmdLine where
     (:$) :: Value a => CmdLine -> a -> CmdLine
     (:>) :: CmdLine -> (Fd, OsString) -> CmdLine
     (:|) :: CmdLine -> Fd -> CmdLine
+    (:@) :: CmdLine -> CmdLog -> CmdLine
 infixl 5 :$
 infixl 5 :>
 infixl 5 :|
+infixl 5 :@
 
 instance Show CmdLine where
     show (Cmd a) = show (toCmdLine a)
@@ -41,17 +44,21 @@ instance Show CmdLine where
 instance Value CmdLine where
     toCmdLine = NE.toList . fst . expand
 
+data CmdLog = LogStdout | LogSilent deriving (Show, Eq)
+
 expand :: CmdLine -> (NE.NonEmpty OsString, Redirects)
 expand (Cmd a) = (NE.fromList . toCmdLine $ a, HM.empty)
-expand (as :$ a) = first (`NE.appendList` toCmdLine a) (expand as)
+expand (as :$ a) = (`NE.appendList` toCmdLine a) `first` expand as
 expand (as :> (fd, file)) = HM.insert fd (ToFile file) <$> expand as
 expand (as :| fd) = HM.insert fd ToPipe <$> expand as
+expand (as :@ _) = expand as
 
-expandToStr :: CmdLine -> OsString
-expandToStr (Cmd a) = intercalate (encodeVal " ") $ toCmdLine a
-expandToStr (as :$ a) = intercalate (encodeVal " ") $ expandToStr as : toCmdLine a
-expandToStr (as :> (fd, file)) = expandToStr as <> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "> " <> file
-expandToStr (as :| fd) = expandToStr as <> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "|"
+expandToStr :: CmdLine -> (OsString, CmdLog)
+expandToStr (Cmd a)            = (intercalate (encodeVal " ") $ toCmdLine a, LogStdout)
+expandToStr (as :$ a)          = (intercalate (encodeVal " ") . (:toCmdLine a))                                 `first` expandToStr as
+expandToStr (as :> (fd, file)) = (<> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "> " <> file) `first` expandToStr as
+expandToStr (as :| fd)         = (<> encodeVal " " <> encodeVal (show (fromEnum fd)) <> encodeVal "|")          `first` expandToStr as
+expandToStr (as :@ log)        = second (const log) (expandToStr as)
 
 spawnCmd :: CmdLine -> IO (ProcessStatus, CmdOutput)
 spawnCmd cmdline =
@@ -63,8 +70,9 @@ spawnCmd cmdline =
 
 spawnCmdPrint :: CmdLine -> IO (ProcessStatus, CmdOutput)
 spawnCmdPrint cmdline = do
-    str <- decodeFS . expandToStr $ cmdline
-    putStrLn str
+    let (str, log) = expandToStr cmdline
+    when (log == LogStdout) do
+        decodeFS str >>= putStrLn
     spawnCmd cmdline
 
 execute :: MonadIO m => CmdLine -> m (Maybe CmdOutput)
