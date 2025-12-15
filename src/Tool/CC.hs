@@ -11,20 +11,26 @@ import Data.Tagged
 import ToolTH
 
 toolEnv =
-  envVar @("cc" :. "cccom")     ("gcc" :: StrVar) :+:
-  envVar @("cc" :. "cflags")    ([] :: TSList StrVar)  :+:
-  envVar @("cc" :. "cpppath")   ([] :: TSList StrVar)  :+:
-  envVar @("cc" :. "linkcom")   ("gcc" :: StrVar) :+:
-  envVar @("cc" :. "linkflags") ([] :: TSList StrVar)  :+:
-  envVar @("cc" :. "libpath")   ([] :: TSList StrVar)  :+:
-  envVar @("cc" :. "libs")      ([] :: TSList Lib)     :+:
+  envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
+  envVar @("cc" :. "cflags")    ([] :: TSList StrVar)     :+:
+  envVar @("cc" :. "cpppath")   ([] :: TSList IncludeDir) :+:
+  envVar @("cc" :. "linkcom")   ("gcc" :: StrVar)         :+:
+  envVar @("cc" :. "linkflags") ([] :: TSList StrVar)     :+:
+  envVar @("cc" :. "libpath")   ([] :: TSList StrVar)     :+:
+  envVar @("cc" :. "libs")      ([] :: TSList Lib)        :+:
   EnvNihil
 
-data Lib = LibSpec { name :: StrVar } | LibFile { name :: StrVar } deriving (Show, Read, Eq)
+data Lib = LibSpec { lname :: StrVar } | LibFile { lname :: StrVar } deriving (Show, Read, Eq)
 instance ConstructionVariable Lib where
-  merge = (<>)
+  merge = exclusiveMerge
 instance Value Lib where
-  toCmdLine lib = toCmdLine lib.name
+  toCmdLine lib = toCmdLine lib.lname
+
+data IncludeDir = Include { iname :: StrVar } | SystemInclude { iname :: StrVar } | IncludeAfter { iname :: StrVar } deriving (Show, Read, Eq)
+instance ConstructionVariable IncludeDir where
+  merge = exclusiveMerge
+instance Value IncludeDir where
+  toCmdLine incl = toCmdLine incl.iname
 
 $genToolVars
 
@@ -32,7 +38,7 @@ data Flag where
     Literal :: Value a => a -> Flag
     Compile :: Flag
     Output  :: Value a => a -> Flag
-    CPPPath :: Value a => a -> Flag
+    CPPPath :: (Foldable f, Value (f IncludeDir)) => f IncludeDir -> Flag
     LibPath :: Value a => a -> Flag
     Libs    :: (Foldable f, Value (f Lib)) => f Lib -> Flag
 
@@ -40,7 +46,11 @@ instance Value Flag where
     toCmdLine (Literal as) = toCmdLine as
     toCmdLine Compile = [encodeVal "-c"]
     toCmdLine (Output a) = encodeVal "-o" : toCmdLine a
-    toCmdLine (CPPPath as) = (encodeVal "-I"<>) <$> toCmdLine as
+    toCmdLine (CPPPath as) = concatMap cppflag as where
+      cppflag x = case x of
+        Include p       -> (encodeVal "-I"<>)          <$> toCmdLine p
+        SystemInclude p -> (encodeVal "-isystem="<>)   <$> toCmdLine p
+        IncludeAfter p  -> (encodeVal "-idirafter="<>) <$> toCmdLine p
     toCmdLine (LibPath as) = (encodeVal "-L"<>) <$> toCmdLine as
     toCmdLine (Libs as) = concatMap libflag as where
       libflag x = case x of
