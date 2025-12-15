@@ -154,7 +154,7 @@ eUpdate n f env =
 eReplace :: forall {vars} {v} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars) => v -> Environment vars -> Environment vars
 eReplace n v = eUpdate n (\_-> Just v)
 
-eInsertTS :: forall {vars} {v} {a} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars, v ~ TSList a, ?target::Node) => a -> Environment vars -> Environment vars
+eInsertTS :: forall {vars} {v} {a} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars, v ~ TSList a, ?target::Node) => [a] -> Environment vars -> Environment vars
 eInsertTS n val = eUpdate n (Just . insertTS ?target val)
 
 class (Eq a, Typeable a, Show a, Read a) => ConstructionVariable a where
@@ -183,9 +183,9 @@ instance Read StrVar where
 instance ConstructionVariable [StrVar] where
   merge = (++)
 
-newtype TSList a = TSList [(Node, a)] deriving (Eq, Show, Read, IsList)
+newtype TSList a = TSList [(Node, [a])] deriving (Eq, Show, Read, IsList)
 
-insertTS :: Node -> a -> TSList a -> TSList a
+insertTS :: Node -> [a] -> TSList a -> TSList a
 insertTS n a (TSList xs) = TSList ((n,a):xs)
 
 instance (ConstructionVariable a) => ConstructionVariable (TSList a) where
@@ -200,6 +200,9 @@ instance (ConstructionVariable a) => ConstructionVariable (TSList a) where
         else
         (y,b):go ((x,a):xs) ys (c:cs)
     go xs yx [] = sortBy (\(x,_) (y,_) -> compare x y) xs <> yx
+
+instance Foldable TSList where
+  foldMap f (TSList xs) = foldMap f $ concatMap snd xs
 
 eMerge :: Environment vars -> Environment vars -> Environment vars
 eMerge env1 env2 = Environment env1.prototype env1.defaults $ HM.unionWithKey doMerge env1.overrides env2.overrides where
