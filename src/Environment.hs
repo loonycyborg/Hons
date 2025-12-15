@@ -20,7 +20,7 @@ import Data.Tagged
 import Data.Proxy
 import qualified Control.Monad.Trans.State.Strict as State
 import GHC.TypeLits
-import GHC.Base (liftM2)
+import GHC.Base (liftM2, Alternative ((<|>)))
 import GHC.IsList
 import Text.Read
 import Data.Char
@@ -166,9 +166,7 @@ instance ConstructionVariable Bool where
 instance ConstructionVariable Int where
   merge = exclusiveMerge
 instance ConstructionVariable a => ConstructionVariable (Maybe a) where
-  merge = (<>)
-instance {-# OVERLAPPABLE #-} ConstructionVariable a => Semigroup a where
-  (<>) = merge
+  merge x y = liftA2 merge x y <|> x <|> y
 
 newtype StrVar = StrVar OsString deriving (Eq, Show)
 instance ConstructionVariable StrVar where
@@ -179,9 +177,6 @@ instance Read StrVar where
   readPrec = parens $ prec 10 $ do
     Ident "StrVar" <- lexP
     fromString <$> readPrec @String
-
-instance ConstructionVariable [StrVar] where
-  merge = (++)
 
 newtype TSList a = TSList [(Node, [a])] deriving (Eq, Show, Read, IsList)
 
