@@ -168,7 +168,7 @@ instance ConstructionVariable Int where
 instance ConstructionVariable a => ConstructionVariable (Maybe a) where
   merge x y = liftA2 merge x y <|> x <|> y
 
-newtype StrVar = StrVar OsString deriving (Eq, Show)
+newtype StrVar = StrVar OsString deriving (Eq, Show, Semigroup)
 instance ConstructionVariable StrVar where
   merge = exclusiveMerge
 instance IsString StrVar where

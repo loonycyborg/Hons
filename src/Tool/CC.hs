@@ -14,6 +14,7 @@ toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
   envVar @("cc" :. "cflags")    ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "cpppath")   ([] :: TSList IncludeDir) :+:
+  envVar @("cc" :. "cppdefines") ([] :: TSList CPPDefine) :+:
   envVar @("cc" :. "linkcom")   ("gcc" :: StrVar)         :+:
   envVar @("cc" :. "linkflags") ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "libpath")   ([] :: TSList StrVar)     :+:
@@ -32,15 +33,23 @@ instance ConstructionVariable IncludeDir where
 instance Value IncludeDir where
   toCmdLine incl = toCmdLine incl.iname
 
+data CPPDefine = CPPDefine StrVar | CPPDefineWithValue StrVar StrVar deriving (Show, Read, Eq)
+instance ConstructionVariable CPPDefine where
+  merge = exclusiveMerge
+instance Value CPPDefine where
+  toCmdLine (CPPDefine d) = toCmdLine d
+  toCmdLine (CPPDefineWithValue d val) = toCmdLine $ d <> "=" <> val
+
 $genToolVars
 
 data Flag where
-    Literal :: Value a => a -> Flag
-    Compile :: Flag
-    Output  :: Value a => a -> Flag
-    CPPPath :: (Foldable f, Value (f IncludeDir)) => f IncludeDir -> Flag
-    LibPath :: Value a => a -> Flag
-    Libs    :: (Foldable f, Value (f Lib)) => f Lib -> Flag
+    Literal    :: Value a => a -> Flag
+    Compile    :: Flag
+    Output     :: Value a => a -> Flag
+    CPPPath    :: (Foldable f, Value (f IncludeDir)) => f IncludeDir -> Flag
+    CPPDefines :: (Foldable f, Value (f CPPDefine)) => f CPPDefine -> Flag
+    LibPath    :: Value a => a -> Flag
+    Libs       :: (Foldable f, Value (f Lib)) => f Lib -> Flag
 
 instance Value Flag where
     toCmdLine (Literal as) = toCmdLine as
@@ -51,13 +60,15 @@ instance Value Flag where
         Include p       -> (encodeVal "-I"<>)          <$> toCmdLine p
         SystemInclude p -> (encodeVal "-isystem="<>)   <$> toCmdLine p
         IncludeAfter p  -> (encodeVal "-idirafter="<>) <$> toCmdLine p
+    toCmdLine (CPPDefines as) = (encodeVal "-D"<>) <$> toCmdLine as
     toCmdLine (LibPath as) = (encodeVal "-L"<>) <$> toCmdLine as
     toCmdLine (Libs as) = concatMap libflag as where
       libflag x = case x of
         LibSpec l -> (encodeVal "-l"<>) <$> toCmdLine l
         LibFile l -> toCmdLine l
+
 compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
-compile = osCommand $ Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ Compile :$ Output substT :$ substS
+compile = osCommand $ Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines :$ Compile :$ Output substT :$ substS
 
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
 link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
