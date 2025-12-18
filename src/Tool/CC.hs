@@ -7,6 +7,10 @@ import Environment
 import Node
 import DepGraph
 import Data.Tagged
+import Text.ParserCombinators.ReadP
+import Data.Char
+import Data.String (fromString)
+import Data.List (unsnoc)
 
 import ToolTH
 
@@ -51,6 +55,8 @@ data Flag where
     LibPath    :: Value a => a -> Flag
     Libs       :: (Foldable f, Value (f Lib)) => f Lib -> Flag
 
+deriving instance Show Flag
+
 instance Value Flag where
     toCmdLine (Literal as) = toCmdLine as
     toCmdLine Compile = [encodeVal "-c"]
@@ -66,6 +72,35 @@ instance Value Flag where
       libflag x = case x of
         LibSpec l -> (encodeVal "-l"<>) <$> toCmdLine l
         LibFile l -> toCmdLine l
+
+flagP :: ReadP Flag
+flagP = choice [
+    Compile <$ string "-c",
+    Output <$> (string "-o" *> literal),
+    CPPPath <$> sepBy1 (
+      (Include <$> (string "-I" *> literal)) +++
+      (SystemInclude <$> (string "-isystem=" *> literal)) +++
+      (IncludeAfter <$> (string "-idirafter=" *> literal))
+    ) skipSpaces,
+    CPPDefines <$> sepBy1 (
+      (CPPDefine <$> (string "-D" *> literal)) +++
+      (CPPDefineWithValue <$> (string "-D" *> literal) <*> (char '=' *> literal))
+    ) skipSpaces,
+    LibPath <$> sepBy1 (string "-L" *> literal) skipSpaces,
+    Libs <$> sepBy1 (LibSpec <$> (string "-l" *> literal)) skipSpaces
+  ] <++
+    (Literal <$> literal)
+  where
+    literal = fromString . concat <$> many1 (escape <++ munch1 (\x -> not (isSpace x) && x /= '\\' && x /= '\''))
+    escape_quote = char '\'' *> munch (/='\'') <* char '\''
+    escape_backslash = char '\\' *> ((:[]) <$> get)
+    escape = choice [escape_quote, escape_backslash]
+
+flagsP :: ReadP [Flag]
+flagsP = skipSpaces *> sepBy flagP (munch1 isSpace) <* skipSpaces <* eof
+
+parseFlags :: String -> Maybe [Flag]
+parseFlags = fmap (fst . snd) . unsnoc . readP_to_S flagsP
 
 compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
 compile = osCommand $ Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines :$ Compile :$ Output substT :$ substS

@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 module Value (module Value, fromNativeBS) where
 
 import qualified Data.Text.Short as TS
@@ -13,7 +14,7 @@ import Environment
 {-# NOINLINE encodeVal #-}
 encodeVal = unsafePerformIO . encodeFS
 
-class Value a where
+class Show a => Value a where
     toCmdLine :: a -> [OsString]
     toSignature :: a -> [ByteString]
     toSignature v = toNativeBS <$> toCmdLine v
@@ -47,5 +48,5 @@ instance Value a => Value (TSList a) where
     toCmdLine (TSList ((x,a):xs)) = toCmdLine a <> toCmdLine (TSList xs)
     toCmdLine (TSList []) = []
 
-instance {-# OVERLAPPABLE #-} (Value a, Foldable f) => Value (f a) where
+instance {-# OVERLAPPABLE #-} (Value a, Foldable f, Show (f a)) => Value (f a) where
     toCmdLine = foldMap toCmdLine
