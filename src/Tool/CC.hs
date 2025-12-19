@@ -10,7 +10,7 @@ import Data.Tagged
 import Text.ParserCombinators.ReadP
 import Data.Char
 import Data.String (fromString)
-import Data.List (unsnoc)
+import Data.List (uncons)
 
 import ToolTH
 
@@ -77,17 +77,17 @@ flagP :: ReadP Flag
 flagP = choice [
     Compile <$ string "-c",
     Output <$> (string "-o" *> literal),
-    CPPPath <$> sepBy1 (
+    CPPPath . (:[]) <$> (
       (Include <$> (string "-I" *> literal)) +++
       (SystemInclude <$> (string "-isystem=" *> literal)) +++
       (IncludeAfter <$> (string "-idirafter=" *> literal))
-    ) skipSpaces,
-    CPPDefines <$> sepBy1 (
+    ),
+    CPPDefines . (:[]) <$> (
       (CPPDefine <$> (string "-D" *> literal)) +++
       (CPPDefineWithValue <$> (string "-D" *> literal) <*> (char '=' *> literal))
-    ) skipSpaces,
-    LibPath <$> sepBy1 (string "-L" *> literal) skipSpaces,
-    Libs <$> sepBy1 (LibSpec <$> (string "-l" *> literal)) skipSpaces
+    ),
+    LibPath <$> (string "-L" *> literal),
+    Libs . (:[]) . LibSpec <$> (string "-l" *> literal)
   ] <++
     (Literal <$> literal)
   where
@@ -100,7 +100,7 @@ flagsP :: ReadP [Flag]
 flagsP = skipSpaces *> sepBy flagP (munch1 isSpace) <* skipSpaces <* eof
 
 parseFlags :: String -> Maybe [Flag]
-parseFlags = fmap (fst . snd) . unsnoc . readP_to_S flagsP
+parseFlags = fmap (fst . fst) . uncons . readP_to_S flagsP
 
 compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
 compile = osCommand $ Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines :$ Compile :$ Output substT :$ substS
