@@ -114,9 +114,9 @@ link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs l
 
 pkg :: (UseEnv ToolVars vars, NodeList ns) => String -> ns -> RuleSet vars
 pkg p src = propagateIO (p <> "-pkgconfig") src do
-  Just version <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ "--modversion"
-  Just pkgcflags <- osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ "--cflags"
-  Just pkglibs <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ "--libs"
+  Just version <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ ("--modversion" :: StrVar)
+  Just pkgcflags <- osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ ("--cflags" :: StrVar)
+  Just pkglibs <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ ("--libs" :: StrVar)
   let Just parsedc = parseFlags $ toString $ StrVar pkgcflags
   let (newcflags, newdefines, newpath) = foldr (\cases
           (CPPPath p)    (cs, ds, ps) -> (cs, ds, Data.Foldable.toList p <> ps)
