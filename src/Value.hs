@@ -6,6 +6,7 @@ import qualified Data.List.NonEmpty as NE
 import System.OsPath
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.ByteString (ByteString)
+import Data.Kind (Constraint, Type)
 
 import ValueCompat
 import Node
@@ -50,3 +51,5 @@ instance Value a => Value (TSList a) where
 
 instance {-# OVERLAPPABLE #-} (Value a, Foldable f, Show (f a)) => Value (f a) where
     toCmdLine = foldMap toCmdLine
+
+type ValueList f a = (Foldable f, Value (f a))

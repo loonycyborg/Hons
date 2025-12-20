@@ -54,10 +54,10 @@ data Flag where
     Literal    :: Value a => a -> Flag
     Compile    :: Flag
     Output     :: Value a => a -> Flag
-    CPPPath    :: (Foldable f, Value (f IncludeDir)) => f IncludeDir -> Flag
-    CPPDefines :: (Foldable f, Value (f CPPDefine)) => f CPPDefine -> Flag
+    CPPPath    :: (ValueList f IncludeDir) => f IncludeDir -> Flag
+    CPPDefines :: (ValueList f CPPDefine) => f CPPDefine -> Flag
     LibPath    :: Value a => a -> Flag
-    Libs       :: (Foldable f, Value (f Lib)) => f Lib -> Flag
+    Libs       :: (ValueList f Lib) => f Lib -> Flag
 
 deriving instance Show Flag
 
