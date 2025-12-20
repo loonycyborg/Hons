@@ -28,7 +28,7 @@ import Text.ParserCombinators.ReadP
 import Language.Haskell.TH (Extension(RankNTypes, FlexibleContexts, RequiredTypeArguments))
 import System.OsString (OsString, encodeLE)
 import Data.String
-import System.OsPath (encodeFS)
+import System.OsPath (encodeFS, decodeFS)
 import System.IO.Unsafe (unsafePerformIO)
 
 import Node (Node)
@@ -168,11 +168,13 @@ instance ConstructionVariable Int where
 instance ConstructionVariable a => ConstructionVariable (Maybe a) where
   merge x y = liftA2 merge x y <|> x <|> y
 
-newtype StrVar = StrVar OsString deriving (Eq, Show, Semigroup)
+newtype StrVar = StrVar { unStrVar :: OsString } deriving (Eq, Show, Semigroup)
 instance ConstructionVariable StrVar where
   merge = exclusiveMerge
 instance IsString StrVar where
   fromString = StrVar . unsafePerformIO . encodeFS
+toString :: StrVar -> String
+toString = unsafePerformIO . decodeFS . (.unStrVar)
 instance Read StrVar where
   readPrec = parens $ prec 10 $ do
     Ident "StrVar" <- lexP

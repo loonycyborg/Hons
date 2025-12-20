@@ -100,6 +100,11 @@ substS = sources where Task _ sources _ _ = ?t
 osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars (Maybe CmdOutput)
 osExecute cmdline = inTaskContext do execute cmdline
 
+osExecutePipeStdout :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars (Maybe OsString)
+osExecutePipeStdout cmdline = do
+    output <- osExecute $ cmdline :| stdout
+    return $ (HM.! stdout) <$> output
+
 osCommand :: (NodeListNonEmpty a, NodeList b) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
 osCommand cmdline target source = command target source
     (isJust <$> osExecute cmdline)

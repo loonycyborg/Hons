@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists #-}
+{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -11,8 +11,11 @@ import Text.ParserCombinators.ReadP
 import Data.Char
 import Data.String (fromString)
 import Data.List (uncons)
+import Data.Foldable
 
 import ToolTH
+import Builder (propagateIO)
+import Action ( EvalResult(EvalResult), modenv )
 
 toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
@@ -23,6 +26,7 @@ toolEnv =
   envVar @("cc" :. "linkflags") ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "libpath")   ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "libs")      ([] :: TSList Lib)        :+:
+  envVar @("cc" :. "pkgconfig") ("pkg-config" :: StrVar)  :+:
   EnvNihil
 
 data Lib = LibSpec { lname :: StrVar } | LibFile { lname :: StrVar } deriving (Show, Read, Eq)
@@ -107,3 +111,31 @@ compile = osCommand $ Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefin
 
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
 link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
+
+pkg :: (UseEnv ToolVars vars, NodeList ns) => String -> ns -> RuleSet vars
+pkg p src = propagateIO (p <> "-pkgconfig") src do
+  Just version <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ "--modversion"
+  Just pkgcflags <- osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ "--cflags"
+  Just pkglibs <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ "--libs"
+  let Just parsedc = parseFlags $ toString $ StrVar pkgcflags
+  let (newcflags, newdefines, newpath) = foldr (\cases
+          (CPPPath p)    (cs, ds, ps) -> (cs, ds, Data.Foldable.toList p <> ps)
+          (CPPDefines d) (cs, ds, ps) -> (cs, Data.Foldable.toList d <> ds, ps)
+          flag           (cs, ds, ps) -> (map StrVar (toCmdLine flag) <> cs, ds, ps)
+        )
+        ([], [], []) parsedc
+  modenv $
+      eInsertTS ("cc" :. "cflags") newcflags
+    . eInsertTS ("cc" :. "cppdefines") newdefines
+    . eInsertTS ("cc" :. "cpppath") newpath
+  let Just parsedlibs = parseFlags $ toString $ StrVar pkglibs
+  let (newlinkflags, newlibs, newlibpath) = foldr (\cases
+          (LibPath p) (fs, ls, ps) -> (fs, ls, map StrVar (toCmdLine p) <> ps)
+          (Libs l)    (fs, ls, ps) -> (fs, Data.Foldable.toList l <> ls, ps)
+          flag        (fs, ls, ps) -> (map StrVar (toCmdLine flag) <> ps, ls, ps)
+        ) ([], [], []) parsedlibs
+  modenv $
+      eInsertTS ("cc" :. "linkflags") newlinkflags
+    . eInsertTS ("cc" :. "libs") newlibs
+    . eInsertTS ("cc" :. "libpath") newlibpath
+  return $ EvalResult $ StrVar version
