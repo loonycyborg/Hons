@@ -5,13 +5,16 @@ import Options.Applicative
 import Text.Read (readEither)
 import GHC.Conc (getNumProcessors)
 import System.IO.Unsafe (unsafePerformIO)
+import Data.Bool (bool)
+import Data.Char (isAlphaNum)
+import Text.ParserCombinators.ReadP ( readP_to_S, char, munch1, eof )
 
 import Taskmaster
 
 data InvocOpts = InvocOpts {
     file :: String,
     chdir :: Maybe String,
-    cmdlineTargets :: [String]
+    cmdlineTargets :: [Either String (String, String)]
 }
 
 invocOpts = InvocOpts <$>
@@ -29,8 +32,8 @@ invocOpts = InvocOpts <$>
         metavar "DIR" <>
         help "Change to directory DIR before doing anything"
     ) <*>
-    many (argument str $
-        metavar "TARGET"
+    many (argument (maybeReader parseVar) $
+        metavar "TARGET | VARIABLE=VALUE"
     )
 
 taskmasterOpts = TaskmasterSettings <$>
@@ -59,6 +62,16 @@ opts = info (allOpts <**> helper)
 
 lastOfMany :: Alternative f => a -> f a -> f a
 lastOfMany def x = (last <$> some x) <|> pure def
+
+parseVar :: String -> Maybe (Either String (String, String))
+parseVar input = case readP_to_S argument input of
+    [(result, "")] -> Just result
+    _              -> Nothing
+  where
+  var = (,) <$> (var_name <* char '=') <*> munch1 (const True)
+  var_name = munch1 ((||) <$> isAlphaNum <*> (=='.'))
+  target = munch1 (/='=')
+  argument = (Right <$> var) <|> (Left <$> target) <* eof
 
 nConc :: Int
 {-# NOINLINE nConc #-}

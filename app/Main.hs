@@ -22,6 +22,8 @@ import Data.Bool (bool)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO.Unsafe (unsafePerformIO)
 import Options.Applicative (execParser)
+import Data.Either (partitionEithers)
+import qualified Data.HashMap.Strict as HM
 
 import Algebra.Graph.Export.Dot (exportViaShow)
 
@@ -30,6 +32,7 @@ import Node
 import DepGraph
 import Taskmaster
 import Builder (depends)
+import Environment (readVars, Environment(Environment))
 
 import Options
 
@@ -79,18 +82,20 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         v <- compileExpr "project"
         liftIO $ doBuild taskmaster_settings invoc_settings.cmdlineTargets $ unsafeCoerce v
 
-doBuild settings target_strings (Project e r default_targets) = do
+doBuild settings argument_strings (Project (Environment proto defaults overrides) r default_targets) = do
     print settings
     let g = r.graph
     let t = r.tasks
     writeFile "graph.dot" (exportViaShow g)
     print t
+    let (target_strings, override_strings) = partitionEithers argument_strings
     let targets = if null target_strings then
             default_targets
         else
             map (resolveTarget g) target_strings
+    let user_overrides = readVars proto override_strings
     let goal_graph = r <> depends goal targets
-    result <- build settings goal_graph e goal
+    result <- build settings goal_graph (Environment proto (HM.union user_overrides defaults) overrides) goal
     when (null targets) do
         print "hons: warning: no targets built because no targets in command line and no default targets in build script"
     bool exitFailure exitSuccess result

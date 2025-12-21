@@ -100,21 +100,13 @@ eProtoMap = eMap
 readerRegistry :: EnvProto vars -> HM.HashMap TS.ShortText (String -> VarHolder)
 readerRegistry = eMap (\(t :: v) -> VarHolder . read @v)
 
-parseVars :: EnvProto vars -> String -> ProtoMap
-parseVars proto input = foldr (uncurry HM.insert) HM.empty results where
-  [(results, "")] = readP_to_S (varParser proto) input
-  varParser proto = sepBy var (skipSpaces >> char '\n') <* eof
-  var = do
-    skipSpaces
-    var_name <- TS.pack <$> munch1 ((||) <$> isAlphaNum <*> (=='.'))
-    let reader = case HM.lookup var_name registry of
-          Just r -> r
-          _      -> error $ "Unknown variable: " <> TS.unpack var_name
-    skipSpaces
-    char '='
-    var_value <- munch1 (/='\n')
-    return (var_name, reader var_value)
+readVars :: EnvProto vars -> [(String, String)] -> ProtoMap
+readVars proto = foldr read_var HM.empty where
+  read_var (name, value) = let n = TS.pack name in HM.insert n (reader n value)
   registry = readerRegistry proto
+  reader name = case HM.lookup name registry of
+    Just r -> r
+    _      -> error $ "Unknown variable: " <> TS.unpack name
 
 writeVars :: ProtoMap -> String
 writeVars protomap = intercalate "\n" $ map (\(k, v) -> TS.unpack k <> "=" <> show v) (HM.toList protomap)
