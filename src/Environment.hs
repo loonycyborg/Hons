@@ -31,7 +31,7 @@ import Data.String
 import System.OsPath (encodeFS, decodeFS)
 import System.IO.Unsafe (unsafePerformIO)
 
-import Node (Node)
+import Node (Node (ValueNode))
 
 data VarName = LocalVar Symbol | Symbol :. Symbol
 
@@ -98,7 +98,7 @@ eProtoMap :: (forall t . (ConstructionVariable t) => t -> VarHolder) -> EnvProto
 eProtoMap = eMap
 
 readerRegistry :: EnvProto vars -> HM.HashMap TS.ShortText (String -> VarHolder)
-readerRegistry = eMap (\(t :: v) -> VarHolder . read @v)
+readerRegistry = eMap (\(t :: v) -> VarHolder . readFromCmdLine @v)
 
 readVars :: EnvProto vars -> [(String, String)] -> ProtoMap
 readVars proto = foldr read_var HM.empty where
@@ -151,18 +151,25 @@ eInsertTS n val = eUpdate n (Just . insertTS ?target val)
 
 class (Eq a, Typeable a, Show a, Read a) => ConstructionVariable a where
   merge :: a -> a -> a
+  fromCmdLine :: ReadP a
+  fromCmdLine = readPrec_to_P (readPrec @a) 0
 exclusiveMerge :: Eq a => a -> a -> a
 exclusiveMerge a b = if a == b then a else error "conflicting variable values"
+readFromCmdLine :: forall a . ConstructionVariable a => String -> a
+readFromCmdLine s = case readP_to_S (fromCmdLine @a <* eof) s of
+  (result, ""):_ -> result
 instance ConstructionVariable Bool where
   merge = exclusiveMerge
 instance ConstructionVariable Int where
   merge = exclusiveMerge
 instance ConstructionVariable a => ConstructionVariable (Maybe a) where
   merge x y = liftA2 merge x y <|> x <|> y
+  fromCmdLine = Nothing <$ eof <|> Just <$> fromCmdLine @a
 
 newtype StrVar = StrVar { unStrVar :: OsString } deriving (Eq, Show, Semigroup)
 instance ConstructionVariable StrVar where
   merge = exclusiveMerge
+  fromCmdLine = fromString <$> munch (const True)
 instance IsString StrVar where
   fromString = StrVar . unsafePerformIO . encodeFS
 toString :: StrVar -> String
@@ -189,6 +196,10 @@ instance (ConstructionVariable a) => ConstructionVariable (TSList a) where
         else
         (y,b):go ((x,a):xs) ys (c:cs)
     go xs yx [] = sortBy (\(x,_) (y,_) -> compare x y) xs <> yx
+  fromCmdLine = TSList [] <$ eof
+            <|> mkTSList <$> (string "list:" *> sepBy (munch (/=';')) (char ';'))
+            <|> mkTSList <$> sepBy (munch (not . isSpace)) skipSpaces
+    where mkTSList = TSList . (:[]) . (ValueNode "user-override",) . fmap readFromCmdLine
 
 instance Foldable TSList where
   foldMap f (TSList xs) = foldMap f $ concatMap snd xs

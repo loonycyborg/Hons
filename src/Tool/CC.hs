@@ -32,18 +32,25 @@ toolEnv =
 data Lib = LibSpec { lname :: StrVar } | LibFile { lname :: StrVar } deriving (Show, Read, Eq)
 instance ConstructionVariable Lib where
   merge = exclusiveMerge
+  fromCmdLine = (LibFile . fromString <$> (       string "libfile:" *> munch (const True)))
+            <++ (LibSpec . fromString <$> (optional (string "lib:") *> munch (const True)))
 instance Value Lib where
   toCmdLine lib = toCmdLine lib.lname
 
 data IncludeDir = Include { iname :: StrVar } | SystemInclude { iname :: StrVar } | IncludeAfter { iname :: StrVar } deriving (Show, Read, Eq)
 instance ConstructionVariable IncludeDir where
   merge = exclusiveMerge
+  fromCmdLine =    (SystemInclude . fromString <$> (string         "sysinc:" *> munch (const True)))
+               +++ ( IncludeAfter . fromString <$> (string       "incafter:" *> munch (const True)))
+               <++ (      Include . fromString <$> (optional (string "inc:") *> munch (const True)))
 instance Value IncludeDir where
   toCmdLine incl = toCmdLine incl.iname
 
 data CPPDefine = CPPDefine StrVar | CPPDefineWithValue StrVar StrVar deriving (Show, Read, Eq)
 instance ConstructionVariable CPPDefine where
   merge = exclusiveMerge
+  fromCmdLine = (CPPDefineWithValue . fromString <$> munch (/='=') <*> (char '=' *> (fromString <$> munch (const True))))
+            <++ (CPPDefine . fromString <$> munch (const True))
 instance Value CPPDefine where
   toCmdLine (CPPDefine d) = toCmdLine d
   toCmdLine (CPPDefineWithValue d val) = toCmdLine $ d <> "=" <> val
