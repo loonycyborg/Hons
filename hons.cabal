@@ -44,7 +44,7 @@ library
     hashable,
     os-string,
     beam-core,
-    beam-sqlite,
+    beam-sqlite <=0.5.5.0,
     beam-migrate,
     sqlite-simple,
     tagged,
