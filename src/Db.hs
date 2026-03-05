@@ -120,7 +120,7 @@ initNodeInfo conn nodeType name exists timestamp signature taskSignature taskSta
         Just next_persistent_id <- runSelectReturningOne $ select do
             aggregate_ (\node -> maybe_ 0 (+1) (max_ node.persistent_id)) $ all_ nodeMetaData.nodes
         [result] <- runInsertReturningList do
-            insert nodeMetaData.nodes $
+            insertReturning nodeMetaData.nodes $
                 insertExpressions [Nodes
                     default_
                     (val_ next_persistent_id)
@@ -139,7 +139,7 @@ updateNodeInfo :: Connection -> Nodes -> Bool -> Int64 -> B.ByteString -> Maybe 
 updateNodeInfo conn prevNodeInfo exists timestamp signature taskSignature taskStatus = do
     runBeamSqlite conn do
         [result] <- runInsertReturningList do
-            insert nodeMetaData.nodes $
+            insertReturning nodeMetaData.nodes $
                 insertExpressions [Nodes 
                     default_
                     (val_ prevNodeInfo.persistent_id)
