@@ -106,6 +106,6 @@ osExecutePipeStdout cmdline = do
     return $ (HM.! stdout) <$> output
 
 osCommand :: (NodeListNonEmpty a, NodeList b) => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> a -> b -> RuleSet vars
-osCommand cmdline target source = command target source
+osCommand cmdline = command
     (isJust <$> osExecute cmdline)
     (inTaskContext $ return $ toSignature cmdline)

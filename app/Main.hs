@@ -31,7 +31,7 @@ import Project
 import Node
 import DepGraph
 import Taskmaster
-import Builder (depends)
+import Builder (depends, reifyBuilderChain, reifyBuilderChains)
 import Environment (readVars, Environment(Environment))
 
 import Options
@@ -52,8 +52,8 @@ findEnv = liftIO do
 
 pPrint :: (Show a, MonadIO m) => a -> m ()
 pPrint = liftIO . print
-honsPrelude = stringToStringBuffer "module Honstruct (project) where\nimport Hons\nimport qualified Tool.CC as CC\n{-# LINE 1 \"Honstruct\" #-}\n"
-honsEpilogue = stringToStringBuffer "\nproject :: Project\nproject = Project (makeEnv env) rules (toList defaultTargets)"
+honsPrelude = stringToStringBuffer "module Honstruct (projectHolder, project) where\nimport Hons\nimport qualified Tool.CC as CC\n{-# LINE 1 \"Honstruct\" #-}\n"
+honsEpilogue = stringToStringBuffer "\nprojectHolder :: ProjectHolder; projectHolder = ProjectHolder project\n"
 main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
     (invoc_settings, taskmaster_settings) <- execParser opts
     runGhc (Just libdir) do
@@ -79,11 +79,13 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         setTargets [target]
         load LoadAllTargets
         setContext [ IIModule $ mkModuleName "Honstruct" ]
-        v <- compileExpr "project"
+        v <- compileExpr "projectHolder"
         liftIO $ doBuild taskmaster_settings invoc_settings.cmdlineTargets $ unsafeCoerce v
 
-doBuild settings argument_strings (Project (Environment proto defaults overrides) r default_targets) = do
+doBuild settings argument_strings (ProjectHolder (Project (Environment proto defaults overrides) builders rules default_targets)) = do
     print settings
+    rg <- reifyBuilderChains builders
+    let r = rg <> rules
     let g = r.graph
     let t = r.tasks
     writeFile "graph.dot" (exportViaShow g)
