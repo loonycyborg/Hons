@@ -18,6 +18,7 @@ import Database.Beam
 import Database.Beam.Migrate
 import Database.Beam.Migrate.Simple
 import Database.Beam.Sqlite.Migrate
+import Database.Beam.Backend.SQL.BeamExtensions ( runInsertReturningList )
 import Database.SQLite.Simple
 import Database.SQLite.Simple.QQ
 import Language.Haskell.TH (Extension(DeriveAnyClass))
@@ -120,7 +121,7 @@ initNodeInfo conn nodeType name exists timestamp signature taskSignature taskSta
         Just next_persistent_id <- runSelectReturningOne $ select do
             aggregate_ (\node -> maybe_ 0 (+1) (max_ node.persistent_id)) $ all_ nodeMetaData.nodes
         [result] <- runInsertReturningList do
-            insertReturning nodeMetaData.nodes $
+            insert nodeMetaData.nodes $
                 insertExpressions [Nodes
                     default_
                     (val_ next_persistent_id)
@@ -139,7 +140,7 @@ updateNodeInfo :: Connection -> Nodes -> Bool -> Int64 -> B.ByteString -> Maybe 
 updateNodeInfo conn prevNodeInfo exists timestamp signature taskSignature taskStatus = do
     runBeamSqlite conn do
         [result] <- runInsertReturningList do
-            insertReturning nodeMetaData.nodes $
+            insert nodeMetaData.nodes $
                 insertExpressions [Nodes 
                     default_
                     (val_ prevNodeInfo.persistent_id)
