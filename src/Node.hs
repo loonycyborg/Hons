@@ -13,6 +13,7 @@ import Data.Foldable1 (Foldable1 (foldMap1))
 import qualified Data.List.NonEmpty as NE
 import Control.Monad (unless)
 import Control.Monad.IO.Class
+import Control.DeepSeq ( force )
 import Text.Read hiding (lift)
 import Control.Applicative (Alternative((<|>)))
 
@@ -23,7 +24,7 @@ data Node where
 
 instance Show Node where
     show (ValueNode n) = "value:" <> n
-    show (FsNode p) = "fs:" <> unsafePerformIO (decodeFilename p)
+    show (FsNode p) = "fs:" <> (force . unsafePerformIO) (decodeFilename p)
 
 instance Read Node where
   readPrec = parens $ prec 10 $ do
@@ -37,7 +38,7 @@ instance Read Node where
         Ident "fs" <- lexP
         Symbol ":" <- lexP
         Ident fname <- lexP
-        return $ mkFsNode $ unsafePerformIO (encodeFilename fname)
+        return $ mkFsNodeFromString fname
 
 instance Hashable Node where
     hashWithSalt salt (FsNode path) = hashWithSalt salt path
@@ -68,8 +69,9 @@ encodeFilename fn = do
         fail $ "Invalid file path: " ++ show p
     return p
 
+decodeFilename :: (MonadIO m) => OsPath -> m String
 decodeFilename fn = do
-    decodeFS fn
+    liftIO $ decodeFS fn
 
 resolveTarget :: AdjacencyMap Node -> FilePath -> Node
 resolveTarget graph target = node where
@@ -82,6 +84,8 @@ baseDir :: OsPath
 baseDir = unsafePerformIO . canonicalizePath . unsafeEncodeUtf $ "."
 mkFsNode :: OsPath -> Node
 mkFsNode = FsNode . makeRelative baseDir . unsafePerformIO . canonicalizePath
+mkFsNodeFromString :: FilePath -> Node
+mkFsNodeFromString = mkFsNode . force . unsafePerformIO . encodeFilename
 mkValue :: String -> Node
 mkValue = ValueNode
 goal :: Node

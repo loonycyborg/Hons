@@ -5,6 +5,7 @@ import qualified Data.Text.Short as TS
 import qualified Data.List.NonEmpty as NE
 import System.OsPath
 import System.IO.Unsafe ( unsafePerformIO )
+import Control.DeepSeq (force)
 import Data.ByteString (ByteString)
 import Data.Kind (Constraint, Type)
 
@@ -13,7 +14,8 @@ import Node
 import Environment
 
 {-# NOINLINE encodeVal #-}
-encodeVal = unsafePerformIO . encodeFS
+encodeVal :: String -> OsPath
+encodeVal = force . unsafePerformIO . encodeFS
 
 class Show a => Value a where
     toCmdLine :: a -> [OsString]

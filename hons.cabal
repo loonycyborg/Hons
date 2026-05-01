@@ -39,6 +39,7 @@ library
     containers,
     cryptohash-md5,
     data-reify,
+    deepseq,
     directory,
     file-io,
     filepath >=1.5.0.0 && <2.0.0.0,
