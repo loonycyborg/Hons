@@ -32,12 +32,12 @@ propagate :: (NodeList a) => String -> a -> ((?target :: Node) => Environment va
 propagate name targets transform = propagateIO name targets do (getenv >>= put . transform) >> return noResult
 
 data BuilderF vars t where
-    BuilderF   :: ([Node] -> RuleSet vars) -> NonEmpty Node -> [t] -> BuilderF vars t
+    BuilderF   :: (NonEmpty Node -> RuleSet vars) -> NonEmpty Node -> NonEmpty t -> BuilderF vars t
     SourceF    :: NonEmpty Node -> BuilderF vars t
     PropagateF :: ((?target :: Node) => Environment vars -> Environment vars) -> BuilderF vars t
 
 data Builder vars where
-    Builder   :: (t -> s -> RuleSet vars) -> (t -> NonEmpty Node) -> ([Node]->s) -> t -> [Builder vars]-> Builder vars
+    Builder   :: (t -> s -> RuleSet vars) -> (t -> NonEmpty Node) -> (NonEmpty Node -> s) -> t -> NonEmpty (Builder vars) -> Builder vars
     Source    :: NodeListNonEmpty a => a -> Builder vars
     Propagate :: ((?target :: Node) => Environment vars -> Environment vars) -> Builder vars
 
@@ -57,7 +57,7 @@ reifyToRuleset :: Graph (BuilderF vars) -> RuleSet vars
 reifyToRuleset x = gs where
     Graph graph _ = x
     builderGraph (_, SourceF t) = RuleSet HM.empty $ vertices $ toList t
-    builderGraph (_, BuilderF builder t s) = builder $ concatMap (toList . (nodemap HM.!)) s
+    builderGraph (_, BuilderF builder t s) = builder $ s >>= (nodemap HM.!)
     builderGraph (s, PropagateF transform) = RuleSet (HM.singleton node (Propagator node do (getenv >>= put . transform) >> return noResult)) (vertex node) where
         node = NE.head $ nodemap HM.! s
     gs = foldMap builderGraph graph
@@ -66,6 +66,6 @@ reifyToRuleset x = gs where
     builderTarget (n, SourceF t)      = (n, t)
     builderTarget (n, PropagateF _)   = (n, mkValue ("propagator" <> show n) :| [])
 
-pattern Command :: NodeListNonEmpty a => Action vars -> ActionM vars [ByteString] -> a -> [Builder vars] -> Builder vars
+pattern Command :: NodeListNonEmpty a => Action vars -> ActionM vars [ByteString] -> a -> NonEmpty (Builder vars) -> Builder vars
 pattern Command <- (const False -> True) where
         Command action sigaction t s = Builder (command action sigaction) toNonEmpty id t s

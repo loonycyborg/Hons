@@ -7,7 +7,7 @@ env =
   envVar @(LocalVar "switch")     (Nothing :: Maybe Bool) :+:
   EnvNihil
 
-prog = Builder CC.link (NE.:|[]) id [fs|example/hello|] [object]
-object = Builder CC.compile (NE.:|[]) head [fs|example/hello.o|] [Source [fs|example/hello.c|]]
+prog = Builder CC.link (NE.:|[]) id [fs|example/hello|] (NE.singleton object)
+object = Builder CC.compile (NE.:|[]) NE.head [fs|example/hello.o|] (Source <$> [filelist|example/hello.c|])
 
 project = (defaultProject env) { builders = [prog], defaultTargets = [[fs|example/hello|]] }
