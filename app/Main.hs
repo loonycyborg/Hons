@@ -64,7 +64,7 @@ main = defaultErrorHandler defaultFatalMessager defaultFlushOut do
         dflags <- liftIO $ act dflags
             { backend   = interpreterBackend
             , ghcLink   = LinkInMemory
-            , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments, OverloadedStrings, ExtendedDefaultRules ] `difference` fromList [FieldSelectors]
+            , extensionFlags = dflags.extensionFlags <> fromList [ OverloadedRecordDot, QuasiQuotes, DataKinds, BlockArguments, OverloadedStrings, OverloadedLists, ExtendedDefaultRules ] `difference` fromList [FieldSelectors]
             , packageEnv = env }
         setSessionDynFlags dflags
         let script_file = invoc_settings.file
