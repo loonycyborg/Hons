@@ -8,6 +8,6 @@ env =
   EnvNihil
 
 prog = Builder CC.link (NE.:|[]) id [fs|example/hello|] [object]
-object = Builder CC.compile (NE.:|[]) NE.head [fs|example/hello.o|] (Source <$> [filelist|example/hello.c|])
+object = Builder CC.compile (NE.:|[]) NE.head [fs|example/hello.o|] [Source [filelist|example/hello.c|] [Propagate $ eInsertTS ("cc" :. "cppdefines") [CC.CPPDefine "X"]]]
 
 project = (defaultProject env) { builders = [prog], defaultTargets = [[fs|example/hello|]] }
