@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase #-}
+{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase, PatternSynonyms, ViewPatterns #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -14,8 +14,8 @@ import Data.List (uncons)
 import Data.Foldable
 
 import ToolTH
-import Builder (propagateIO)
-import Action ( EvalResult(EvalResult), modenv )
+import Builder (propagateIO, Builder (PropagateIO), ChainType(PropagatorC))
+import Action ( EvalResult(EvalResult), modenv, Evaluator )
 
 toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
@@ -119,8 +119,8 @@ compile = osCommand $ Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefin
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
 link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
 
-pkg :: (UseEnv ToolVars vars, NodeList ns) => String -> ns -> RuleSet vars
-pkg p src = propagateIO (p <> "-pkgconfig") src do
+pkgConfig :: (UseEnv ToolVars vars) => String -> Evaluator vars
+pkgConfig p = do
   Just version <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ ("--modversion" :: StrVar)
   Just pkgcflags <- osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ ("--cflags" :: StrVar)
   Just pkglibs <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ ("--libs" :: StrVar)
@@ -146,3 +146,7 @@ pkg p src = propagateIO (p <> "-pkgconfig") src do
     . eInsertTS ("cc" :. "libs") newlibs
     . eInsertTS ("cc" :. "libpath") newlibpath
   return $ EvalResult $ StrVar version
+
+pattern Pkg :: (UseEnv ToolVars vars) => String -> Builder vars PropagatorC
+pattern Pkg <- (const False -> True) where
+  Pkg name = PropagateIO (pkgConfig name) (name ++ "-pkg-config")

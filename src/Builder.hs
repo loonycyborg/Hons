@@ -34,20 +34,22 @@ propagate name targets transform = propagateIO name targets do (getenv >>= put .
 data BuilderF vars t where
     BuilderF   :: (NonEmpty Node -> RuleSet vars) -> NonEmpty Node -> NonEmpty t -> BuilderF vars t
     SourceF    :: NonEmpty Node -> [t] -> BuilderF vars t
-    PropagateF :: ((?target :: Node) => Environment vars -> Environment vars) -> BuilderF vars t
+    PropagateF :: Evaluator vars -> String -> BuilderF vars t
 
 data ChainType = BuilderC | PropagatorC deriving Show
 
 data Builder vars (ct :: ChainType) where
-    Builder   :: (t -> s -> RuleSet vars) -> (t -> NonEmpty Node) -> (NonEmpty Node -> s) -> t -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
-    Source    :: NodeListNonEmpty a => a -> [Builder vars PropagatorC] -> Builder vars BuilderC
-    Propagate :: ((?target :: Node) => Environment vars -> Environment vars) -> Builder vars PropagatorC
+    Builder     :: (t -> s -> RuleSet vars) -> (t -> NonEmpty Node) -> (NonEmpty Node -> s) -> t -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
+    Source      :: NodeListNonEmpty a => a -> [Builder vars PropagatorC] -> Builder vars BuilderC
+    Propagate   :: ((?target :: Node) => Environment vars -> Environment vars) -> Builder vars PropagatorC
+    PropagateIO :: Evaluator vars -> String -> Builder vars PropagatorC
 
 instance MuRef (Builder vars ct) where
     type DeRef (Builder vars ct) = BuilderF vars
     mapDeRef f (Source nodes propagators)                  = SourceF (toNonEmpty nodes) <$> traverse f propagators
     mapDeRef f (Builder builder targetF sourceF tgts srcs) = BuilderF (builder tgts . sourceF) (targetF tgts) <$> traverse f srcs
-    mapDeRef _ (Propagate transform)                       = pure $ PropagateF transform
+    mapDeRef _ (Propagate transform)                       = pure $ PropagateF (do (getenv >>= put . transform) >> return noResult) "propagator"
+    mapDeRef _ (PropagateIO evaluator name)                = pure $ PropagateF evaluator name
 
 reifyBuilderChain :: (DeRef s ~ BuilderF vars, MuRef s) => s -> IO (RuleSet vars)
 reifyBuilderChain g = reifyToRuleset <$> reifyGraph g
@@ -58,15 +60,15 @@ reifyBuilderChains g = foldMap reifyToRuleset <$> reifyGraphs g
 reifyToRuleset :: Graph (BuilderF vars) -> RuleSet vars
 reifyToRuleset x = gs where
     Graph graph _ = x
-    builderGraph (_, SourceF t ps)         = depends t $ ps >>= (toList . (nodemap HM.!))
-    builderGraph (_, BuilderF builder t s) = builder $ s >>= (nodemap HM.!)
-    builderGraph (s, PropagateF transform) = RuleSet (HM.singleton node (Propagator node do (getenv >>= put . transform) >> return noResult)) (vertex node) where
+    builderGraph (_, SourceF t ps)           = depends t $ ps >>= (toList . (nodemap HM.!))
+    builderGraph (_, BuilderF builder t s)   = builder $ s >>= (nodemap HM.!)
+    builderGraph (s, PropagateF evaluator _) = RuleSet (HM.singleton node (Propagator node evaluator)) (vertex node) where
         node = NE.head $ nodemap HM.! s
     gs = foldMap builderGraph graph
     nodemap = HM.fromList $ fmap builderTarget graph
     builderTarget (n, BuilderF _ t _) = (n, t)
     builderTarget (n, SourceF t _)    = (n, t)
-    builderTarget (n, PropagateF _)   = (n, mkValue ("propagator" <> show n) :| [])
+    builderTarget (n, PropagateF _ p) = (n, mkValue (p <> show n) :| [])
 
 pattern Command :: NodeListNonEmpty a => Action vars -> ActionM vars [ByteString] -> a -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
 pattern Command <- (const False -> True) where
