@@ -12,6 +12,7 @@ import Data.Char
 import Data.String (fromString)
 import Data.List (uncons)
 import Data.Foldable
+import GHC.Exts (IsString)
 
 import ToolTH
 import Builder (propagateIO, Builder (PropagateIO), ChainType(PropagatorC))
@@ -36,6 +37,8 @@ instance ConstructionVariable Lib where
             <++ (LibSpec . fromString <$> (optional (string "lib:") *> munch (const True)))
 instance Value Lib where
   toCmdLine lib = toCmdLine lib.lname
+instance IsString Lib where
+  fromString = LibSpec . fromString
 
 data IncludeDir = Include { iname :: StrVar } | SystemInclude { iname :: StrVar } | IncludeAfter { iname :: StrVar } deriving (Show, Read, Eq)
 instance ConstructionVariable IncludeDir where
@@ -45,6 +48,8 @@ instance ConstructionVariable IncludeDir where
                <++ (      Include . fromString <$> (optional (string "inc:") *> munch (const True)))
 instance Value IncludeDir where
   toCmdLine incl = toCmdLine incl.iname
+instance IsString IncludeDir where
+  fromString = Include . fromString
 
 data CPPDefine = CPPDefine StrVar | CPPDefineWithValue StrVar StrVar deriving (Show, Read, Eq)
 instance ConstructionVariable CPPDefine where
@@ -54,6 +59,8 @@ instance ConstructionVariable CPPDefine where
 instance Value CPPDefine where
   toCmdLine (CPPDefine d) = toCmdLine d
   toCmdLine (CPPDefineWithValue d val) = toCmdLine $ d <> "=" <> val
+instance IsString CPPDefine where
+  fromString = CPPDefine . fromString
 
 $genToolVars
 
