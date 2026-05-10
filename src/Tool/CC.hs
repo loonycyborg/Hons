@@ -139,9 +139,9 @@ pkgConfig p = do
         )
         ([], [], []) parsedc
   modenv $
-      eInsertTS ("cc" :. "cflags") newcflags
-    . eInsertTS ("cc" :. "cppdefines") newdefines
-    . eInsertTS ("cc" :. "cpppath") newpath
+      eInsertTS CFLAGS newcflags
+    . eInsertTS CPPDEFINES newdefines
+    . eInsertTS CPPPATH newpath
   let Just parsedlibs = parseFlags $ toString $ StrVar pkglibs
   let (newlinkflags, newlibs, newlibpath) = foldr (\cases
           (LibPath p) (fs, ls, ps) -> (fs, ls, map StrVar (toCmdLine p) <> ps)
@@ -149,9 +149,9 @@ pkgConfig p = do
           flag        (fs, ls, ps) -> (map StrVar (toCmdLine flag) <> ps, ls, ps)
         ) ([], [], []) parsedlibs
   modenv $
-      eInsertTS ("cc" :. "linkflags") newlinkflags
-    . eInsertTS ("cc" :. "libs") newlibs
-    . eInsertTS ("cc" :. "libpath") newlibpath
+      eInsertTS LINKFLAGS newlinkflags
+    . eInsertTS LIBS newlibs
+    . eInsertTS LIBPATH newlibpath
   return $ EvalResult $ StrVar version
 
 pattern Pkg :: (UseEnv ToolVars vars) => String -> Builder vars PropagatorC

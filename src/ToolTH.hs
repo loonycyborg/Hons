@@ -1,7 +1,7 @@
 module ToolTH where
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
-import Data.Char (toLower)
+import Data.Char (toLower, toUpper)
 
 genToolVars :: Q [Dec]
 genToolVars = do
@@ -25,8 +25,10 @@ genToolVars = do
                         ) (VarT a)
                     ] (VarT a)
                 ),
-            ValD (VarP acc_name) (NormalB (AppE (UnboundVarE $ mkName "subst") (InfixE (Just (LitE (StringL toolset))) (ConE $ mkName ":.") (Just (LitE (StringL var)))))) []
+            ValD (VarP acc_name) (NormalB (AppE (UnboundVarE $ mkName "subst") (InfixE (Just (LitE (StringL toolset))) (ConE $ mkName ":.") (Just (LitE (StringL var)))))) [],
+            TySynD type_name [] (AppT (AppT (PromotedT $ mkName ":.") (LitT (StrTyLit toolset))) (LitT (StrTyLit var)))
             ] where
                 acc_name = mkName var
+                type_name = mkName $ toUpper <$> var
                 vars = mkName "vars"
                 a = mkName "a"
