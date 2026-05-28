@@ -15,11 +15,16 @@ import Data.Hashable
 
 type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
 type Action vars = (ActionM vars) Bool
+type ActionSig vars = (ActionM vars) [ByteString]
 type Evaluator vars = (?target :: Node) => (ActionM vars) EvalResult
 
 data Task vars where
-    Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars, sign :: (ActionM vars) [ByteString] } -> Task vars
+    Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars, sign :: ActionSig vars } -> Task vars
     Propagator :: Node -> Evaluator vars -> Task vars
+
+instance Show (Task vars) where
+    show (Task targets sources _ _) = "Task " <> show (L.toList targets) <> " -> " <> show sources
+    show (Propagator n _) = "Propagator " <> show n
 
 data EvalResult = forall a . Value a => EvalResult a
 noResult = EvalResult NoVal
@@ -27,11 +32,6 @@ noResult = EvalResult NoVal
 instance Eq (Task vars) where
     (==) :: Task vars -> Task vars -> Bool
     (==) t1 t2 = L.head t1.targets == L.head t2.targets
-
-instance Show (Task vars) where
-    show (Task targets _ _ _) = "[[[" ++ (show . L.head $ targets) ++ "]]]"
-    show (Propagator target _) = "[[[Propagator " ++ show target ++ "]]]"
-
 instance Hashable (Task vars) where
     hashWithSalt salt t = hashWithSalt salt t.targets
 
