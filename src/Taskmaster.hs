@@ -21,6 +21,7 @@ import Node
 import Environment
 import Decider
 import DepGraph
+import System.IO.Unsafe (unsafePerformIO)
 
 data TaskmasterSettings = TaskmasterSettings {
     jobs :: Int,
@@ -29,7 +30,7 @@ data TaskmasterSettings = TaskmasterSettings {
 } deriving (Eq, Show)
 
 data TaskStatus vars where
-    Done    :: { target :: Node, env :: Environment vars, changed :: Ruling } -> TaskStatus vars
+    Done    :: { target :: Node, env :: Environment vars, implicit :: [Node], changed :: Ruling } -> TaskStatus vars
     Failed  :: { target :: Node } -> TaskStatus vars
     deriving Show
 
@@ -51,7 +52,7 @@ signTask :: Environment vars -> Task vars -> IO [ByteString]
 signTask env task@(Task targets sources action sign) =
     fst <$> runReaderT (runStateT sign env) task
 
-executeEvaluator :: Environment vars -> Task vars -> IO (EvalResult, Environment vars)
+executeEvaluator :: Environment vars -> Task vars -> IO ((EvalResult, [Node]), Environment vars)
 executeEvaluator env task@(Propagator target eval) = let ?target = target in do
     runReaderT (runStateT eval env) task
 
@@ -62,10 +63,10 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
         0 -> return Nothing
         _ -> Just <$> newQSem settings.jobs
     let
-        buildNode xs       _     _     ((b:_):bs) = fail $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
-        buildNode (node:_) tsrcs osrcs []         = do
-            let srcs = tsrcs <> osrcs
-            allsrcs <- sequence srcs
+        extract_implicit a = (a, (unsafePerformIO do either wait return a).implicit)
+        buildNode xs       _     _     ((b:_):bs) = error $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
+        buildNode (node:_) tsrcs osrcs []         = extract_implicit . unsafePerformIO $ do
+            let allsrcs = tsrcs <> osrcs
             let (pending, complete) = partitionEithers allsrcs
             let (done, failed) = classifyStatuses complete
             evaluateNode allsrcs pending done failed
@@ -74,7 +75,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                 evaluateNode allsrcs (_:_) done _     = do
                     Left <$> async do
                         (async_done, async_failed) <- classifyStatuses <$> mapM (either wait return) allsrcs
-                        actualize $ evaluateNode allsrcs [] async_done async_failed
+                        evaluateNode allsrcs [] async_done async_failed >>= either wait return
                 evaluateNode _       []    _    (_:_) = Right <$> returnFail
                 evaluateNode _       []    done []    = do
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) done
@@ -107,22 +108,18 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                         return cached_var
                                     readMVar var
                 returnFail = return $ Failed node
-                returnSuccessRebuilt             = returnSuccessG (\_ _ changed -> pure changed)
-                returnSuccessEval (result, env)  = returnSuccessG wasEvaluated                   env result
-                returnSuccess env                = returnSuccessG decideNode                     env Nothing
-                returnSuccessG f env arg = do
+                returnSuccessRebuilt env changed             = returnSuccessG (\_ _ changed -> pure changed) env changed []
+                returnSuccessEval ((result, implicit), env)  = returnSuccessG wasEvaluated                   env result  implicit
+                returnSuccess env                            = returnSuccessG decideNode                     env Nothing []
+                returnSuccessG f env arg implicit = do
                     changed <- f decider node arg
-                    return $ Done node env changed
-        actualize a = do
-            result <- a
-            case result of Right status -> return status
-                           Left  a      -> wait a
+                    return $ Done node env implicit changed
         parallel_limiter =
             case parallel_limit of
                 Just sem -> bracket_ (waitQSem sem) (signalQSem sem)
                 Nothing  -> id
     result <- catch
-        do actualize $ depthFirstFold (flip (:)) buildNode ruleset.graph goal []
+        do either wait return $ depthFirstFold (flip (:)) buildNode ruleset.graph goal []
         do \(e :: BuildException) -> return $ Failed goal
     case result of
         Failed {} -> do

@@ -152,7 +152,7 @@ pkgConfig p = do
       eInsertTS LINKFLAGS newlinkflags
     . eInsertTS LIBS newlibs
     . eInsertTS LIBPATH newlibpath
-  return $ EvalResult $ StrVar version
+  return (EvalResult $ StrVar version, [])
 
 pattern Pkg :: (UseEnv ToolVars vars) => String -> Builder vars PropagatorC
 pattern Pkg <- (const False -> True) where
