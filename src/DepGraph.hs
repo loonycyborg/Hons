@@ -46,7 +46,7 @@ depthFirstFold discover_func finish_func graph vertex a1 =
                 let a2 = finish_func a1 tree_edges front_cross_edges back_edges in
                 (a2, HM.adjust (\(Discovered, x) -> (Finished a2, x)) vertex search)
             check_implicit_deps (s, t, f, b, implicit) = 
-                foldr check_edge (s, t, f, b, []) implicit
+                foldr check_edge (s, t, f, b, []) (filter (not <$> (`Set.member` postSet vertex graph)) implicit)
             check_implicit_deps_recursively =
                 until (\(_, _, _, _, implicit) -> null implicit) check_implicit_deps
 
