@@ -18,7 +18,7 @@ import Data.Kind (Type)
 
 import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList )
 import Environment
-import Action (Action, getenv, ActionM, gett, Task (Task))
+import Action (Action, getenv, ActionM, gett, Task (Task, Propagator))
 import DepGraph (RuleSet)
 import Builder (command)
 import Value
@@ -92,10 +92,16 @@ subst :: forall {vars} {a} . forall (n :: VarName) -> (LookupType n vars ~ a, Co
 subst n = eLookup n ?e
 
 substT :: (?t::Task vars) => NE.NonEmpty Node
-substT = targets where Task targets _ _ _ = ?t
+substT = targets where
+    targets = case ?t of
+        Task targets _ _ _ -> targets
+        Propagator n _     -> NE.singleton n
 
 substS :: (?t::Task vars) => [Node]
-substS = sources where Task _ sources _ _ = ?t
+substS = sources where
+    sources = case ?t of
+        Task _ sources _ _ -> sources
+        Propagator n _     -> [n]
 
 osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars (Maybe CmdOutput)
 osExecute cmdline = inTaskContext do execute cmdline

@@ -54,7 +54,9 @@ signTask env task@(Task targets sources action sign) =
 
 executeEvaluator :: Environment vars -> Task vars -> IO ((EvalResult, [Node]), Environment vars)
 executeEvaluator env task@(Propagator target eval) = let ?target = target in do
-    runReaderT (runStateT eval env) task
+    catch
+        do runReaderT (runStateT eval env) task
+        do \(e :: SomeException) -> putStrLn ("hons: " <> show target <> " : evaluation threw exception: " <> displayException e) >> return ((ResultFailure, []), env)
 
 build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO Bool
 build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -> do
@@ -63,7 +65,10 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
         0 -> return Nothing
         _ -> Just <$> newQSem settings.jobs
     let
-        extract_implicit a = (a, (unsafePerformIO do either wait return a).implicit)
+        extract_implicit a = (a, case unsafePerformIO do either wait return a of
+            Done _ _ implicit _ -> implicit
+            Failed _ -> []
+            )
         buildNode xs       _     _     ((b:_):bs) = error $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
         buildNode (node:_) tsrcs osrcs []         = extract_implicit . unsafePerformIO $ do
             let allsrcs = tsrcs <> osrcs
@@ -109,6 +114,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                     readMVar var
                 returnFail = return $ Failed node
                 returnSuccessRebuilt env changed             = returnSuccessG (\_ _ changed -> pure changed) env changed []
+                returnSuccessEval ((ResultFailure, _), _)    = return $ Failed node
                 returnSuccessEval ((result, implicit), env)  = returnSuccessG wasEvaluated                   env result  implicit
                 returnSuccess env                            = returnSuccessG decideNode                     env Nothing []
                 returnSuccessG f env arg implicit = do

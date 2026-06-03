@@ -91,6 +91,12 @@ mkValue = ValueNode
 goal :: Node
 goal = mkValue "goal"
 
+nodePath :: Node -> OsPath
+nodePath (FsNode a) = a
+nodePath a = error $ "FsNode expected instead of " <> show a
+nodePathString :: Node -> String
+nodePathString = force . unsafePerformIO . decodeFilename . nodePath
+
 fs :: QuasiQuoter
 fs = QuasiQuoter {
     quoteExp = \x -> do

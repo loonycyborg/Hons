@@ -26,8 +26,9 @@ instance Show (Task vars) where
     show (Task targets sources _ _) = "Task " <> show (L.toList targets) <> " -> " <> show sources
     show (Propagator n _) = "Propagator " <> show n
 
-data EvalResult = forall a . Value a => EvalResult a
+data EvalResult = forall a . Value a => EvalResult a | ResultFailure
 noResult = EvalResult NoVal
+deriving instance Show EvalResult
 
 instance Eq (Task vars) where
     (==) :: Task vars -> Task vars -> Bool

@@ -8,15 +8,19 @@ import Node
 import DepGraph
 import Data.Tagged
 import Text.ParserCombinators.ReadP
+import Data.Makefile
+import Data.Makefile.Parse (parseMakefileContents)
 import Data.Char
 import Data.String (fromString)
 import Data.List (uncons)
+import Data.Maybe (mapMaybe)
 import Data.Foldable
+import qualified Data.Text as T
 import GHC.Exts (IsString)
 
 import ToolTH
-import Builder (propagateIO, Builder (PropagateIO), ChainType(PropagatorC))
-import Action ( EvalResult(EvalResult), modenv, Evaluator )
+import Builder (propagateIO, Builder (PropagateIO), ChainType(PropagatorC), depends)
+import Action ( EvalResult(EvalResult, ResultFailure), modenv, Evaluator, Task, noResult )
 
 toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
@@ -67,6 +71,9 @@ $genToolVars
 data Flag where
     Literal    :: Value a => a -> Flag
     Compile    :: Flag
+    Preprocess :: Flag
+    Deps       :: Flag
+    SysDeps    :: Flag
     Output     :: Value a => a -> Flag
     CPPPath    :: (ValueList f IncludeDir) => f IncludeDir -> Flag
     CPPDefines :: (ValueList f CPPDefine) => f CPPDefine -> Flag
@@ -78,6 +85,9 @@ deriving instance Show Flag
 instance Value Flag where
     toCmdLine (Literal as) = toCmdLine as
     toCmdLine Compile = [encodeVal "-c"]
+    toCmdLine Preprocess = [encodeVal "-E"]
+    toCmdLine Deps = [encodeVal "-MM"]
+    toCmdLine SysDeps = [encodeVal "-M"]
     toCmdLine (Output a) = encodeVal "-o" : toCmdLine a
     toCmdLine (CPPPath as) = concatMap cppflag as where
       cppflag x = case x of
@@ -120,8 +130,25 @@ flagsP = skipSpaces *> sepBy flagP (munch1 isSpace) <* skipSpaces <* eof
 parseFlags :: String -> Maybe [Flag]
 parseFlags = fmap (fst . fst) . uncons . readP_to_S flagsP
 
-compile :: (UseEnv ToolVars vars) => Node -> Node -> RuleSet vars
-compile = osCommand $ Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines :$ Compile :$ Output substT :$ substS
+genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine -> CmdLine
+genCFlags c = c :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
+
+compile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
+compile tgt src = c tgt src <> cscan tgt src where
+  c = osCommand $ genCFlags $ Cmd cccom :$ Compile :$ Output substT :$ substS
+
+cscan :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
+cscan tgt src =
+    let scan_name = nodePathString src <> ".cscan"
+    in depends (mkValue scan_name) src <> propagateIO scan_name tgt do
+  scan_result <- osExecutePipeStdout $ genCFlags $ Cmd cccom :$ Preprocess :$ SysDeps :$ src
+  makefile_text <- T.pack <$> maybe (fail "Scanner command failed") decodeFilename scan_result
+  makefile <- either fail return $ parseMakefileContents makefile_text
+  let deps = map dep2node $ concat $ mapMaybe extract_dep makefile.entries where
+        extract_dep (Rule _ deps _) = Just deps
+        extract_dep _               = Nothing
+        dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
+  return (noResult, deps)
 
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
 link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
