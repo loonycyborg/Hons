@@ -10,8 +10,6 @@ import Data.ByteString (ByteString)
 import Data.Kind (Constraint, Type)
 
 import ValueCompat
-import Node
-import Environment
 
 {-# NOINLINE encodeVal #-}
 encodeVal :: String -> OsPath
@@ -33,23 +31,12 @@ instance Value Int where
 instance Value TS.ShortText where
     toCmdLine = (:[]) . encodeVal . TS.unpack
 
-instance Value StrVar where
-    toCmdLine (StrVar a) = [a]
-
 instance Value String where
     toCmdLine = (:[]) . encodeVal
 
 instance Value a => Value (Maybe a) where
     toCmdLine (Just a) = toCmdLine a
     toCmdLine Nothing = []
-
-instance Value Node where
-    toCmdLine (FsNode f) = [f]
-    toCmdLine (ValueNode v) = [encodeVal v]
-
-instance Value a => Value (TSList a) where
-    toCmdLine (TSList ((x,a):xs)) = toCmdLine a <> toCmdLine (TSList xs)
-    toCmdLine (TSList []) = []
 
 instance {-# OVERLAPPABLE #-} (Value a, Foldable f, Show (f a)) => Value (f a) where
     toCmdLine = foldMap toCmdLine

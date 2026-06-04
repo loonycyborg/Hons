@@ -17,6 +17,8 @@ import Control.DeepSeq ( force )
 import Text.Read hiding (lift)
 import Control.Applicative (Alternative((<|>)))
 
+import Value
+
 data Node where
     ValueNode :: { name :: String } -> Node
     FsNode :: { path :: OsPath } -> Node
@@ -61,6 +63,10 @@ instance NodeListNonEmpty Node where
 
 instance Foldable1 f => NodeListNonEmpty (f Node) where
     toNonEmpty = foldMap1 (:|[])
+
+instance Value Node where
+    toCmdLine (FsNode f) = [f]
+    toCmdLine (ValueNode v) = [encodeVal v]
 
 encodeFilename :: (MonadIO m, MonadFail m) => FilePath -> m OsPath
 encodeFilename fn = do

@@ -32,6 +32,7 @@ import System.OsPath (encodeFS, decodeFS)
 import System.IO.Unsafe (unsafePerformIO)
 
 import Node (Node (ValueNode))
+import Value
 
 data VarName = LocalVar Symbol | Symbol :. Symbol
 
@@ -179,7 +180,14 @@ instance Read StrVar where
     Ident "StrVar" <- lexP
     fromString <$> readPrec @String
 
+instance Value StrVar where
+    toCmdLine (StrVar a) = [a]
+
 newtype TSList a = TSList [(Node, [a])] deriving (Eq, Show, Read, IsList)
+
+instance Value a => Value (TSList a) where
+    toCmdLine (TSList ((x,a):xs)) = toCmdLine a <> toCmdLine (TSList xs)
+    toCmdLine (TSList []) = []
 
 insertTS :: Node -> [a] -> TSList a -> TSList a
 insertTS n a (TSList xs) = TSList ((n,a):xs)
