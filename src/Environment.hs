@@ -31,7 +31,7 @@ import Data.String
 import System.OsPath (encodeFS, decodeFS)
 import System.IO.Unsafe (unsafePerformIO)
 
-import Node (Node (ValueNode))
+import Node (Node (ValueNode), mkValue)
 import Value
 
 data VarName = LocalVar Symbol | Symbol :. Symbol
@@ -207,7 +207,7 @@ instance (ConstructionVariable a) => ConstructionVariable (TSList a) where
   fromCmdLine = TSList [] <$ eof
             <|> mkTSList <$> (string "list:" *> sepBy (munch (/=';')) (char ';'))
             <|> mkTSList <$> sepBy (munch (not . isSpace)) skipSpaces
-    where mkTSList = TSList . (:[]) . (ValueNode "user-override",) . fmap readFromCmdLine
+    where mkTSList = TSList . (:[]) . (mkValue "user-override",) . fmap readFromCmdLine
 
 instance Foldable TSList where
   foldMap f (TSList xs) = foldMap f $ concatMap snd xs

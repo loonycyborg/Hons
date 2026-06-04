@@ -27,7 +27,7 @@ instance Show (Task vars) where
     show (Evaluator target sources _ _) = "Propagator " <> show target <> " -> " <> show sources
 
 data EvalResult = forall a . Value a => EvalResult a | ResultFailure
-noResult = EvalResult NoVal
+noResult = EvalResult ()
 deriving instance Show EvalResult
 
 instance Eq (Task vars) where

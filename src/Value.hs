@@ -20,9 +20,8 @@ class Show a => Value a where
     toSignature :: a -> [ByteString]
     toSignature v = toNativeBS <$> toCmdLine v
 
-data NoVal = NoVal deriving (Show, Eq)
-instance Value NoVal where
-    toCmdLine _ = [ encodeVal "!!!NoVal!!!" ]
+instance Value () where
+    toCmdLine _ = []
     toSignature _ = []
 
 instance Value Int where

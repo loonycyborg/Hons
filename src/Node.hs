@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, BlockArguments #-}
+{-# LANGUAGE TypeFamilies, BlockArguments, RequiredTypeArguments, TemplateHaskellQuotes #-}
 
 module Node where
 import System.OsPath
@@ -16,16 +16,38 @@ import Control.Monad.IO.Class
 import Control.DeepSeq ( force )
 import Text.Read hiding (lift)
 import Control.Applicative (Alternative((<|>)))
+import Type.Reflection
+import Data.Kind
 
 import Value
 
+data ValueTyHolder = forall a . (Value a) => ValueTyHolder (TypeRep a)
+deriving instance Show ValueTyHolder
+instance Eq ValueTyHolder where
+    (ValueTyHolder a1) == (ValueTyHolder a2) = SomeTypeRep a1 == SomeTypeRep a2
+instance Ord ValueTyHolder where
+    compare (ValueTyHolder a1) (ValueTyHolder a2) = compare (SomeTypeRep a1) (SomeTypeRep a2)
+instance Hashable ValueTyHolder where
+    hashWithSalt salt (ValueTyHolder a) = hashWithSalt salt a
+instance Lift ValueTyHolder where
+    liftTyped (ValueTyHolder _) = [||ValueTyHolder (typeRep @())||]
+
+mkTyHolder :: forall (ty :: Type) -> (Typeable ty, Value ty) => ValueTyHolder
+mkTyHolder ty = ValueTyHolder (typeRep @ty)
+
+mkUnitTyHolder :: ValueTyHolder
+mkUnitTyHolder = ValueTyHolder (typeRep @())
+
 data Node where
-    ValueNode :: { name :: String } -> Node
+    ValueNode :: { name :: String, ty :: ValueTyHolder } -> Node
     FsNode :: { path :: OsPath } -> Node
     deriving (Eq, Ord, Lift)
 
+valueTypeSuffix :: forall (a :: Type). TypeRep a -> String
+valueTypeSuffix t = if SomeTypeRep t /= SomeTypeRep (typeRep @()) then "!" <> show t else ""
+
 instance Show Node where
-    show (ValueNode n) = "value:" <> n
+    show (ValueNode n (ValueTyHolder t)) = "value:" <> n <> valueTypeSuffix t
     show (FsNode p) = "fs:" <> (force . unsafePerformIO) (decodeFilename p)
 
 instance Read Node where
@@ -34,7 +56,7 @@ instance Read Node where
         Ident "value" <- lexP
         Symbol ":" <- lexP
         Ident n <- lexP
-        return $ ValueNode n
+        return $ ValueNode n mkUnitTyHolder
     <|>
     do
         Ident "fs" <- lexP
@@ -44,7 +66,7 @@ instance Read Node where
 
 instance Hashable Node where
     hashWithSalt salt (FsNode path) = hashWithSalt salt path
-    hashWithSalt salt (ValueNode name) = hashWithSalt salt name
+    hashWithSalt salt (ValueNode name ty) = salt `hashWithSalt` name `hashWithSalt` ty
 
 class NodeList l where
     toList :: l -> [Node]
@@ -66,7 +88,7 @@ instance Foldable1 f => NodeListNonEmpty (f Node) where
 
 instance Value Node where
     toCmdLine (FsNode f) = [f]
-    toCmdLine (ValueNode v) = [encodeVal v]
+    toCmdLine (ValueNode v _) = [encodeVal v]
 
 encodeFilename :: (MonadIO m, MonadFail m) => FilePath -> m OsPath
 encodeFilename fn = do
@@ -93,7 +115,7 @@ mkFsNode = FsNode . makeRelative baseDir . unsafePerformIO . canonicalizePath
 mkFsNodeFromString :: FilePath -> Node
 mkFsNodeFromString = mkFsNode . force . unsafePerformIO . encodeFilename
 mkValue :: String -> Node
-mkValue = ValueNode
+mkValue n = ValueNode n mkUnitTyHolder
 goal :: Node
 goal = mkValue "goal"
 
