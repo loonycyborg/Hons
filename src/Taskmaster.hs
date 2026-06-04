@@ -34,6 +34,10 @@ data TaskStatus vars where
     Failed  :: { target :: Node } -> TaskStatus vars
     deriving Show
 
+taskFailed :: TaskStatus vars -> Bool
+taskFailed (Failed {}) = True
+taskFailed _           = False
+
 data BuildException = TaskFailed deriving (Show)
 instance Exception BuildException
 
@@ -49,11 +53,11 @@ executeTask env task@(Task targets sources action sign) = do
     runReaderT (runStateT action env) task
 
 signTask :: Environment vars -> Task vars -> IO [ByteString]
-signTask env task@(Task targets sources action sign) =
-    fst <$> runReaderT (runStateT sign env) task
+signTask env task =
+    fst <$> runReaderT (runStateT task.sign env) task
 
 executeEvaluator :: Environment vars -> Task vars -> IO ((EvalResult, [Node]), Environment vars)
-executeEvaluator env task@(Propagator target eval) = let ?target = target in do
+executeEvaluator env task@(Evaluator target _ eval _) = let ?target = target in do
     catch
         do runReaderT (runStateT eval env) task
         do \(e :: SomeException) -> putStrLn ("hons: " <> show target <> " : evaluation threw exception: " <> displayException e) >> return ((ResultFailure, []), env)
@@ -85,12 +89,11 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                 evaluateNode _       []    done []    = do
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) done
                     case task of
-                        Nothing                   -> Right <$> returnSuccess source_env
-                        Just eval@(Propagator {}) -> Right <$> (executeEvaluator source_env eval >>= returnSuccessEval)
-                        Just t@(Task {})          -> do
+                        Nothing -> Right <$> returnSuccess source_env
+                        Just t  -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t
-                            needs_rebuild <- needsRebuild decider node signature
+                            needs_rebuild <- if null t.sources then return True else needsRebuild decider node signature
                             case (sources_changed, needs_rebuild || settings.alwaysMake) of
                                 (Unchanged, False) -> Right <$> returnSuccess source_env
                                 _                  -> Left  <$> async do
@@ -100,26 +103,34 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                             Just st -> (cache, st)
                                             Nothing -> (HM.insert t new_var cache, new_var)
                                     var <- if new_var == cached_var then do
-                                        (result, result_env) <- parallel_limiter do
-                                            executeTask source_env t
-                                        changed <- wasRebuilt decider node result signature
-                                        unless result do
+                                        status <- parallel_limiter do
+                                            case t of
+                                                Task {}      -> do
+                                                    (result, result_env) <- executeTask source_env t
+                                                    changed <- wasRebuilt decider node result signature
+                                                    if result then
+                                                        return $ Done node result_env [] changed
+                                                    else
+                                                        returnFail
+                                                Evaluator {} -> do
+                                                    ((result, implicit), result_env) <- executeEvaluator source_env t
+                                                    changed <- wasEvaluated decider node result
+                                                    case result of
+                                                        ResultFailure -> returnFail
+                                                        _             -> return $ Done node result_env implicit changed
+                                        when (taskFailed status) do
                                             putStrLn $ "hons: *** " ++ show t ++ ": task failed"
                                             unless settings.keepGoing do
                                                 throwIO TaskFailed
-                                        (if result then returnSuccessRebuilt result_env changed else returnFail) >>= putMVar new_var
+                                        putMVar new_var status
                                         return new_var
                                     else
                                         return cached_var
                                     readMVar var
                 returnFail = return $ Failed node
-                returnSuccessRebuilt env changed             = returnSuccessG (\_ _ changed -> pure changed) env changed []
-                returnSuccessEval ((ResultFailure, _), _)    = return $ Failed node
-                returnSuccessEval ((result, implicit), env)  = returnSuccessG wasEvaluated                   env result  implicit
-                returnSuccess env                            = returnSuccessG decideNode                     env Nothing []
-                returnSuccessG f env arg implicit = do
-                    changed <- f decider node arg
-                    return $ Done node env implicit changed
+                returnSuccess env = do
+                    changed <- decideNode decider node Nothing
+                    return $ Done node env [] changed
         parallel_limiter =
             case parallel_limit of
                 Just sem -> bracket_ (waitQSem sem) (signalQSem sem)

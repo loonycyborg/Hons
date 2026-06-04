@@ -20,7 +20,7 @@ import GHC.Exts (IsString)
 
 import ToolTH
 import Builder (propagateIO, Builder (PropagateIO), ChainType(PropagatorC), depends)
-import Action ( EvalResult(EvalResult, ResultFailure), modenv, Evaluator, Task, noResult )
+import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult )
 
 toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
@@ -153,7 +153,7 @@ cscan tgt src =
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
 link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
 
-pkgConfig :: (UseEnv ToolVars vars) => String -> Evaluator vars
+pkgConfig :: (UseEnv ToolVars vars) => String -> ActionEval vars
 pkgConfig p = do
   Just version <-   osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ ("--modversion" :: StrVar)
   Just pkgcflags <- osExecutePipeStdout $ Cmd pkgconfig :$ p :@ LogSilent :$ ("--cflags" :: StrVar)
