@@ -108,9 +108,9 @@ getNodeInfo conn nodeType name = do
     r <- runBeamSqlite conn do
         runSelectReturningList $
             select do
-                (_, _, generation) <- filter_ (\(t, n, _) -> val_ name ==. n &&. val_ nodeType ==. t) $
-                    aggregate_ (\node -> (group_ node.nodeType, group_ node.name, max_ node.generation)) $ all_ nodeMetaData.nodes
-                filter_ (\node -> node.nodeType ==. val_ nodeType &&. node.name ==. val_ name &&. maybe_ (val_ False) (\g -> node.generation ==. g) generation) $ all_ nodeMetaData.nodes
+                limit_ 1 $ orderBy_ (desc_ . (.generation)) $
+                    filter_ (\n -> val_ name ==. n.name &&. val_ nodeType ==. n.nodeType) $
+                    all_ nodeMetaData.nodes
     return case r of
         [n] -> Just n
         []   -> Nothing
