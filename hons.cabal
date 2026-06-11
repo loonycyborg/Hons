@@ -35,6 +35,7 @@ library
     algebraic-graphs >=0.7,
     async,
     base,
+    binary,
     bytestring,
     containers,
     cryptohash-md5,
