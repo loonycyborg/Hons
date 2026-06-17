@@ -19,8 +19,8 @@ import qualified Data.Text as T
 import GHC.Exts (IsString)
 
 import ToolTH
-import Builder (propagateIO, Builder (PropagateIO), ChainType(PropagatorC), depends)
-import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult )
+import Builder (propagateIO, Builder (PropagateIO), ChainType(PropagatorC), depends, evaluate)
+import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult, ActionSig )
 
 toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
@@ -140,15 +140,20 @@ compile tgt src = c tgt src <> cscan tgt src where
 cscan :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
 cscan tgt src =
     let scan_name = nodePathString src <> ".cscan"
-    in depends (mkValue scan_name) src <> propagateIO scan_name tgt do
-  scan_result <- osExecutePipeStdout $ genCFlags $ Cmd cccom :$ Preprocess :$ SysDeps :$ src
-  makefile_text <- T.pack <$> maybe (fail "Scanner command failed") decodeFilename scan_result
-  makefile <- either fail return $ parseMakefileContents makefile_text
-  let deps = map dep2node $ concat $ mapMaybe extract_dep makefile.entries where
-        extract_dep (Rule _ deps _) = Just deps
-        extract_dep _               = Nothing
-        dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
-  return (noResult, deps)
+        val = mkValue scan_name
+        scan_cmd :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
+        scan_cmd = genCFlags $ Cmd cccom :$ Preprocess :$ SysDeps :$ src
+        do_scan = do
+          scan_result <- osExecutePipeStdout scan_cmd
+          makefile_text <- T.pack <$> maybe (fail "Scanner command failed") decodeFilename scan_result
+          makefile <- either fail return $ parseMakefileContents makefile_text
+          let deps = map dep2node $ concat $ mapMaybe extract_dep makefile.entries where
+                extract_dep (Rule _ deps _) = Just deps
+                extract_dep _               = Nothing
+                dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
+          return (noResult, deps)
+    in
+      depends tgt val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd)
 
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
 link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS

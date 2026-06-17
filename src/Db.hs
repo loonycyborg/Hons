@@ -50,8 +50,21 @@ type Nodes = NodesT Identity
 deriving instance Show Nodes
 deriving instance Eq Nodes
 
+data ImplicitDepsT f =
+    ImplicitDeps
+    { source       :: PrimaryKey NodesT f
+    , implicit_dep :: PrimaryKey NodesT f
+    } deriving (Generic, Beamable)
+
+instance Table ImplicitDepsT where
+    data PrimaryKey ImplicitDepsT f = NoPrimaryKey deriving (Generic, Beamable)
+    primaryKey _ = NoPrimaryKey
+
+type ImplicitDeps = ImplicitDepsT Identity
+
 data NodeMetaData f = NodeMetaData
-    { nodes :: f (TableEntity NodesT) }
+    { nodes         :: f (TableEntity NodesT)
+    , implicit_deps :: f (TableEntity ImplicitDepsT) }
       deriving (Generic, Database Sqlite)
 
 nodeMetaDataChecked :: CheckedDatabaseSettings Sqlite NodeMetaData
@@ -76,9 +89,19 @@ setupSchema conn = do
         )
     |]
 
+    execute_ conn [sql|
+        create table if not exists implicit_deps(
+            source__id INTEGER NOT NULL REFERENCES nodes(id),
+            implicit_dep__id INTEGER NOT NULL REFERENCES nodes(id)
+        )
+    |]
+
     execute_ conn "create index if not exists node_identity_index on nodes (type, name)"
     execute_ conn "create unique index if not exists node_archive_index on nodes (generation, type, name)"
     execute_ conn "create index if not exists node_persistent_index on nodes (persistent_id)"
+
+    execute_ conn "create index if not exists impdep_sources on implicit_deps (source__id)"
+    execute_ conn "create unique index if not exists impdeps on implicit_deps (source__id, implicit_dep__id)"
 
     runBeamSqlite conn do
         result <- verifySchema migrationBackend nodeMetaDataChecked
@@ -141,7 +164,7 @@ updateNodeInfo conn prevNodeInfo exists timestamp signature taskSignature taskSt
     runBeamSqlite conn do
         [result] <- runInsertReturningList do
             insert nodeMetaData.nodes $
-                insertExpressions [Nodes 
+                insertExpressions [Nodes
                     default_
                     (val_ prevNodeInfo.persistent_id)
                     (val_ prevNodeInfo.generation + 1)
@@ -154,3 +177,21 @@ updateNodeInfo conn prevNodeInfo exists timestamp signature taskSignature taskSt
                     (val_ taskStatus)
                 ]
         return result
+
+insertImplicitDeps :: Connection -> [(Int32, [Int32])] -> IO ()
+insertImplicitDeps conn imps = do
+    let rows = concatMap (\(s, i) -> map (ImplicitDeps (NodeId s) . NodeId) i) imps
+
+    runBeamSqlite conn do
+        runInsert do
+            insert nodeMetaData.implicit_deps (insertValues rows)
+
+selectImplicitDeps :: Connection -> Int32 -> IO [(T.Text, T.Text)]
+selectImplicitDeps conn nid = do
+    runBeamSqlite conn do
+        runSelectReturningList $
+            select do
+                implicit <- filter_ (\n -> val_ (NodeId nid) ==. n.source) $ all_ nodeMetaData.implicit_deps
+                ni <- all_ nodeMetaData.nodes
+                guard_ (references_ implicit.implicit_dep ni)
+                return (ni.nodeType, ni.name)

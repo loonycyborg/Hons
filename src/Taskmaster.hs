@@ -15,6 +15,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.QSem
 import Control.Exception
+import Control.Arrow
 
 import Action
 import Node
@@ -88,14 +89,20 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                 evaluateNode _       []    _    (_:_) = Right <$> returnFail
                 evaluateNode _       []    done []    = do
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) done
+                    let implicit_deps = map ((.target) &&& (.implicit)) $
+                            filter (not . null . (.implicit)) $
+                            filter ((/=Unchanged) . (.changed)) done
+                    updateImplicitDeps decider implicit_deps
                     case task of
-                        Nothing -> Right <$> returnSuccess source_env
+                        Nothing -> Right <$> returnUpToDate source_env []
                         Just t  -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t
                             needs_rebuild <- if null t.sources then return True else needsRebuild decider node signature
                             case (sources_changed, needs_rebuild || settings.alwaysMake) of
-                                (Unchanged, False) -> Right <$> returnSuccess source_env
+                                (Unchanged, False) -> Right <$> do
+                                    implicit <- reuseImplicitDeps decider node
+                                    returnUpToDate source_env implicit
                                 _                  -> Left  <$> async do
                                     new_var <- newEmptyMVar
                                     cached_var <- atomicModifyIORef' task_cache \cache ->
@@ -128,9 +135,9 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                         return cached_var
                                     readMVar var
                 returnFail = return $ Failed node
-                returnSuccess env = do
+                returnUpToDate env implicit = do
                     changed <- decideNode decider node Nothing
-                    return $ Done node env [] changed
+                    return $ Done node env implicit changed
         parallel_limiter =
             case parallel_limit of
                 Just sem -> bracket_ (waitQSem sem) (signalQSem sem)

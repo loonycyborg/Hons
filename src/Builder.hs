@@ -16,13 +16,16 @@ import Data.ByteString (ByteString)
 
 depends :: (NodeList a, NodeList b) => a -> b -> RuleSet vars
 depends target source = RuleSet HM.empty (connect (vertices $ toList target) (vertices $ toList source))
-command :: (NodeListNonEmpty a, NodeList b) => Action vars -> ActionM vars [ByteString] -> a -> b -> RuleSet vars
+command :: (NodeListNonEmpty a, NodeList b) => Action vars -> ActionSig vars -> a -> b -> RuleSet vars
 command action sign target source = RuleSet (HM.fromList $ map (, task) tlist) (connect tgraph sgraph) where
     tgraph = vertices tlist
     sgraph = vertices slist
     tlist = toList target
     slist = toList source
     task = Task (toNonEmpty target) slist action sign
+
+evaluate :: NodeList a => Node -> a -> ActionEval vars -> ActionSig vars -> RuleSet vars
+evaluate target sources eval sign = RuleSet (HM.singleton target $ Evaluator target (toList sources) eval sign) (connect (vertex target) (vertices $ toList sources))
 
 propagateIO :: (NodeList a) => String -> a -> ActionEval vars -> RuleSet vars
 propagateIO name targets transform = RuleSet (HM.singleton node (Evaluator node [] transform (return []))) (connect (vertices $ toList targets) (vertex node)) where

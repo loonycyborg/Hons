@@ -1,10 +1,11 @@
-{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE BlockArguments, OverloadedStrings #-}
 module Decider where
 
 import Data.Int (Int32, Int64)
 import Data.Maybe
 import Control.Monad
 import Control.Exception
+import Data.Bifunctor (bimap)
 import Database.SQLite.Simple
 import qualified Data.Text as T
 import qualified Data.ByteString as B
@@ -74,6 +75,10 @@ dbName (FsNode path) = unsafePerformIO do
                          p <- decodeFS path
                          pure (T.pack "fs",    T.pack p)
 dbName (ValueNode name (ValueTyHolder t)) = (T.pack "value", T.pack name <> T.pack (valueTypeSuffix t))
+
+fromDbName :: (T.Text, T.Text) -> Node
+fromDbName ("fs", name) = mkFsNodeFromString $ T.unpack name
+fromDbName ("value", name) = mkValue $ T.unpack name
 
 fromDb :: Nodes -> MetaData
 fromDb (Nodes _ _ _ nodeType name existed timestamp signature _ _)
@@ -166,6 +171,19 @@ updateDb context node prevNode newMetadata newTaskMetadata = do
                     where (dbtype, name) = dbName node
         Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) (dbTimestamp newMetadata) (dbSignature newMetadata) task_signature status
     updateNodeInfoCache context node $ Just ni
+
+updateImplicitDeps :: DeciderContext -> [(Node, [Node])] -> IO()
+updateImplicitDeps decider imps = do
+    cache <- readIORef decider.dbCache
+    let ids = map (bimap lookup_item (map lookup_item)) imps
+        lookup_item = (.nodeId) . fromMaybe (error msg) . join . flip HM.lookup cache
+        msg = "Failed to find node in database"
+    insertImplicitDeps decider.conn ids
+
+reuseImplicitDeps :: DeciderContext -> Node -> IO [Node]
+reuseImplicitDeps decider node = do
+    Just ni <- getNodeInfoCached decider node
+    map fromDbName <$> selectImplicitDeps decider.conn ni.nodeId
 
 hashSignature :: [B.ByteString] -> Maybe B.ByteString
 hashSignature []    = Nothing
