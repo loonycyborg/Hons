@@ -16,6 +16,7 @@ import Data.List (uncons)
 import Data.Maybe (mapMaybe)
 import Data.Foldable
 import qualified Data.Text as T
+import Data.Hashable (hash)
 import GHC.Exts (IsString)
 
 import ToolTH
@@ -151,7 +152,7 @@ cscan tgt src =
                 extract_dep (Rule _ deps _) = Just deps
                 extract_dep _               = Nothing
                 dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
-          return (noResult, deps)
+          return (EvalResult $ hash deps, deps)
     in
       depends tgt val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd)
 

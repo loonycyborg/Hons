@@ -4,6 +4,7 @@ module Decider where
 import Data.Int (Int32, Int64)
 import Data.Maybe
 import Control.Monad
+import Control.Applicative (Alternative((<|>)))
 import Control.Exception
 import Data.Bifunctor (bimap)
 import Database.SQLite.Simple
@@ -121,10 +122,11 @@ wasRebuilt context node status result signature = do
 syncDb :: DeciderContext -> Node -> Maybe TaskMetaData -> IO (Maybe MetaData, MetaData)
 syncDb context node task_metadata = do
     prevNode <- getNodeInfoCached context node
-    let prevMetaData = fromDb <$> prevNode
-    let result = ((.result_value)) =<< task_metadata
-    newMetadata <- buildNewMetadata node result
     let prev_task_metadata = fromDbTask <$> prevNode
+    let prevMetaData = fromDb <$> prevNode
+    let result = ((.result_value)) =<< task_metadata <|> join prev_task_metadata
+    newMetadata <- buildNewMetadata node result
+
     let skip_update = or $ skipsDbUpdate <$> prevMetaData <*> Just newMetadata
     let skip_task_update = isNothing task_metadata || Just task_metadata == prev_task_metadata
     unless (skip_update && skip_task_update) do
