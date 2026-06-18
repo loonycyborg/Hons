@@ -36,6 +36,7 @@ data NodesT f
     , nodeType       :: Columnar f T.Text
     , name           :: Columnar f T.Text
     , existed        :: Columnar f Bool
+    , value          :: Columnar f (Maybe B.ByteString)
     , timestamp      :: Columnar f Int64
     , signature      :: Columnar f B.ByteString
     , task_signature :: Columnar f (Maybe B.ByteString)
@@ -82,6 +83,7 @@ setupSchema conn = do
             type VARCHAR NOT NULL,
             name VARCHAR NOT NULL,
             existed BOOLEAN NOT NULL,
+            value BLOB,
             timestamp BIGINT NOT NULL,
             signature BLOB NOT NULL,
             task_signature BLOB,
@@ -138,8 +140,8 @@ getNodeInfo conn nodeType name = do
         [n] -> Just n
         []   -> Nothing
 
-initNodeInfo :: Connection -> T.Text -> T.Text -> Bool -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Bool -> IO Nodes
-initNodeInfo conn nodeType name exists timestamp signature taskSignature taskStatus = do
+initNodeInfo :: Connection -> T.Text -> T.Text -> Bool -> Maybe B.ByteString -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Bool -> IO Nodes
+initNodeInfo conn nodeType name exists value timestamp signature taskSignature taskStatus = do
     runBeamSqlite conn do
         Just next_persistent_id <- runSelectReturningOne $ select do
             aggregate_ (\node -> maybe_ 0 (+1) (max_ node.persistent_id)) $ all_ nodeMetaData.nodes
@@ -152,6 +154,7 @@ initNodeInfo conn nodeType name exists timestamp signature taskSignature taskSta
                     (val_ nodeType)
                     (val_ name)
                     (val_ exists)
+                    (val_ value)
                     (val_ timestamp)
                     (val_ signature)
                     (val_ taskSignature)
@@ -159,8 +162,8 @@ initNodeInfo conn nodeType name exists timestamp signature taskSignature taskSta
                 ]
         return result
 
-updateNodeInfo :: Connection -> Nodes -> Bool -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Bool -> IO Nodes
-updateNodeInfo conn prevNodeInfo exists timestamp signature taskSignature taskStatus = do
+updateNodeInfo :: Connection -> Nodes -> Bool -> Maybe B.ByteString -> Int64 -> B.ByteString -> Maybe B.ByteString -> Maybe Bool -> IO Nodes
+updateNodeInfo conn prevNodeInfo exists value timestamp signature taskSignature taskStatus = do
     runBeamSqlite conn do
         [result] <- runInsertReturningList do
             insert nodeMetaData.nodes $
@@ -171,6 +174,7 @@ updateNodeInfo conn prevNodeInfo exists timestamp signature taskSignature taskSt
                     (val_ prevNodeInfo.nodeType)
                     (val_ prevNodeInfo.name)
                     (val_ exists)
+                    (val_ value)
                     (val_ timestamp)
                     (val_ signature)
                     (val_ taskSignature)

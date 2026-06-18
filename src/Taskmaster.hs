@@ -9,7 +9,7 @@ import Algebra.Graph.AdjacencyMap
 import Control.Monad
 import Data.Either
 import Data.Maybe
-import Data.ByteString (ByteString)
+import Data.ByteString (ByteString, toStrict)
 import Data.IORef
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -23,6 +23,7 @@ import Environment
 import Decider
 import DepGraph
 import System.IO.Unsafe (unsafePerformIO)
+import Data.Binary (encode)
 
 data TaskmasterSettings = TaskmasterSettings {
     jobs :: Int,
@@ -114,14 +115,17 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                             case t of
                                                 Task {}      -> do
                                                     (result, result_env) <- executeTask source_env t
-                                                    changed <- wasRebuilt decider node result signature
+                                                    changed <- wasRebuilt decider node result Nothing signature
                                                     if result then
                                                         return $ Done node result_env [] changed
                                                     else
                                                         returnFail
                                                 Evaluator {} -> do
                                                     ((result, implicit), result_env) <- executeEvaluator source_env t
-                                                    changed <- wasEvaluated decider node result
+                                                    let (is_success, value) = case result of
+                                                            ResultFailure -> (False, Nothing)
+                                                            EvalResult a -> (True, Just $ toStrict $ encode a)
+                                                    changed <- wasRebuilt decider node is_success value signature
                                                     case result of
                                                         ResultFailure -> returnFail
                                                         _             -> return $ Done node result_env implicit changed

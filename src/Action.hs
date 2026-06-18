@@ -12,6 +12,7 @@ import Value
 import Data.List.NonEmpty as L
 import Data.ByteString (ByteString)
 import Data.Hashable
+import Data.Binary (Binary)
 
 type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
 type Action vars = (ActionM vars) Bool
@@ -26,7 +27,7 @@ instance Show (Task vars) where
     show (Task targets sources _ _) = "Task " <> show (L.toList targets) <> " -> " <> show sources
     show (Evaluator target sources _ _) = "Propagator " <> show target <> " -> " <> show sources
 
-data EvalResult = forall a . Value a => EvalResult a | ResultFailure
+data EvalResult = forall a . (Value a, Binary a) => EvalResult a | ResultFailure
 noResult = EvalResult ()
 deriving instance Show EvalResult
 

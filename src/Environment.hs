@@ -28,6 +28,7 @@ import Text.ParserCombinators.ReadP
 import Language.Haskell.TH (Extension(RankNTypes, FlexibleContexts, RequiredTypeArguments))
 import System.OsString (OsString, encodeLE)
 import Data.String
+import Data.Binary (Binary)
 import System.OsPath (encodeFS, decodeFS)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -167,7 +168,7 @@ instance ConstructionVariable a => ConstructionVariable (Maybe a) where
   merge x y = liftA2 merge x y <|> x <|> y
   fromCmdLine = Nothing <$ eof <|> Just <$> fromCmdLine @a
 
-newtype StrVar = StrVar { unStrVar :: OsString } deriving (Eq, Show, Semigroup)
+newtype StrVar = StrVar { unStrVar :: OsString } deriving (Eq, Show, Semigroup, Binary)
 instance ConstructionVariable StrVar where
   merge = exclusiveMerge
   fromCmdLine = fromString <$> munch (const True)
