@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase, PatternSynonyms, ViewPatterns #-}
+{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase, PatternSynonyms, ViewPatterns, QuasiQuotes, TypeAbstractions #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -15,12 +15,15 @@ import Data.String (fromString)
 import Data.List (uncons)
 import Data.Maybe (mapMaybe)
 import Data.Foldable
+import System.OsPath ( (-<.>), osp, isExtensionOf )
 import qualified Data.Text as T
+import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty (NonEmpty)
 import Data.Hashable (hash)
 import GHC.Exts (IsString)
 
 import ToolTH
-import Builder (propagateIO, Builder (PropagateIO), ChainType(PropagatorC), depends, evaluate)
+import Builder (propagateIO, Builder (PropagateIO, Builder), ChainType(BuilderC,PropagatorC), depends, evaluate, emptyRuleSet)
 import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult, ActionSig )
 
 toolEnv =
@@ -158,6 +161,25 @@ cscan tgt src =
 
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
 link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
+
+data ObjectBuilder = ObjectBuilder (forall t . UseEnv ToolVars t => Node -> Node -> RuleSet t) | LiteralObject
+
+program :: UseEnv ToolVars vars => StrVar -> [(StrVar, ObjectBuilder)] -> RuleSet vars
+program @vars (StrVar name) = link_objects . foldMap compile_object where
+  compile_object :: (StrVar, ObjectBuilder) -> ([Node], RuleSet vars)
+  compile_object (StrVar name, ObjectBuilder func) = ([tgt], (func @vars) tgt src) where [ tgt, src ] = map FsNode [ name -<.> [osp|.o|], name ]
+  compile_object (StrVar name, LiteralObject)      = ([FsNode name], emptyRuleSet)
+  link_objects (objects, sg) = sg <> link (FsNode name) objects
+
+pattern Program :: UseEnv ToolVars vars => StrVar -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
+pattern Program <- (const False -> True) where
+  Program tgt src = Builder program program_node source_builders tgt src where
+    program_node (StrVar name) = NE.singleton $ FsNode name
+    source_builders            = NE.toList . fmap source_builder
+    source_builder (FsNode name)
+      | [osp|.c|] `isExtensionOf` name = (StrVar name, ObjectBuilder compile)
+      | otherwise    = (StrVar name, LiteralObject)
+    source_builder _ = error "Value nodes are not supported as program sources"
 
 pkgConfig :: (UseEnv ToolVars vars) => String -> ActionEval vars
 pkgConfig p = do

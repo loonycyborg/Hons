@@ -16,6 +16,8 @@ import Data.ByteString (ByteString)
 
 depends :: (NodeList a, NodeList b) => a -> b -> RuleSet vars
 depends target source = RuleSet HM.empty (connect (vertices $ toList target) (vertices $ toList source))
+emptyRuleSet :: RuleSet vars
+emptyRuleSet = depends ([] @Node) ([] @Node)
 command :: (NodeListNonEmpty a, NodeList b) => Action vars -> ActionSig vars -> a -> b -> RuleSet vars
 command action sign target source = RuleSet (HM.fromList $ map (, task) tlist) (connect tgraph sgraph) where
     tgraph = vertices tlist
