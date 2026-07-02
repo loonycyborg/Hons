@@ -91,8 +91,11 @@ inTaskContext action = do
     let ?t = task
     action
 
-subst :: forall {vars} {a} . forall (n :: VarName) -> (LookupType n vars ~ a, ConstructionVariable a, ?e::(Environment vars), VarNameVal n) => a
+subst :: forall {vars} {a} . forall (n :: VarName) -> (LookupType n vars ~ a, ConstructionVariable a, ?e::Environment vars, VarNameVal n) => a
 subst n = eLookup n ?e
+
+substL :: forall (n :: Symbol) -> (LookupType (LocalVar n) vars ~ a, ConstructionVariable a, ?e::Environment vars, KnownSymbol n) => a
+substL l = subst (LocalVar l)
 
 substT :: (?t::Task vars) => NE.NonEmpty Node
 substT = targets where

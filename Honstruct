@@ -5,7 +5,7 @@ env =
 
 prog = CC.Program "example/hello" [Source [filelist|example/hello.c|] [Propagate $ eInsertTS CC.CPPDEFINES ["X"]]]
 
-pr = osBuilder (Cmd "echo" :$ subst (LocalVar "parameter") :> outFile (substTarget)) [fs|print.txt|] [Source [filelist|example/hello.c|] []]
+pr = osBuilder (Cmd "echo" :$ substL "parameter" :> outFile (substTarget)) [fs|print.txt|] [Source [filelist|example/hello.c|] []]
 
 fact = ioBuilder (do
   let [s] = substS
