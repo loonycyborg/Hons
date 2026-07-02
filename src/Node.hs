@@ -20,7 +20,9 @@ import qualified Data.HashMap.Strict as HM
 import Control.Monad (unless)
 import Control.Monad.IO.Class
 import Control.DeepSeq ( force )
-import Text.Read hiding (lift, get)
+import Text.Read hiding (lift, get, (<++))
+import Text.ParserCombinators.ReadP (string, munch1, (<++))
+import qualified Text.ParserCombinators.ReadPrec as ReadPrec
 import Control.Applicative (Alternative((<|>)))
 import Type.Reflection
 import Type.Reflection.Unsafe (someTypeRepFingerprint)
@@ -85,17 +87,10 @@ instance Show Node where
 
 instance Read Node where
   readPrec = parens $ prec 10 $ do
-    do
-        Ident "value" <- lexP
-        Symbol ":" <- lexP
-        Ident n <- lexP
-        return $ ValueNode n mkUnitTyHolder
-    <|>
-    do
-        Ident "fs" <- lexP
-        Symbol ":" <- lexP
-        Ident fname <- lexP
-        return $ mkFsNodeFromString fname
+    ReadPrec.lift $ (
+        string "value:" *> (           mkValue <$> munch1 (const True)) <|>
+        string "fs:"    *> (mkFsNodeFromString <$> munch1 (const True))
+        ) <++ (mkFsNodeFromString <$> munch1 (const True))
 
 instance Hashable Node where
     hashWithSalt salt (FsNode path) = hashWithSalt salt path
@@ -136,7 +131,7 @@ decodeFilename fn = do
 
 resolveTarget :: AdjacencyMap Node -> FilePath -> Node
 resolveTarget graph target = node where
-    f_node = mkFsNode (unsafePerformIO $ encodeFilename target)
+    f_node = read target
     node | hasVertex f_node graph = f_node
          | otherwise = error $ "Don't know how to build target: " ++ target
 
