@@ -16,11 +16,11 @@ import Control.Monad (when)
 import GHC.TypeLits (Symbol, KnownSymbol)
 import Data.Kind (Type)
 
-import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList )
+import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList, toNonEmpty )
 import Environment
 import Action (Action, getenv, ActionM, gett, Task (Task, Evaluator))
 import DepGraph (RuleSet)
-import Builder (command)
+import Builder (command, Builder (..), ChainType(..))
 import Value
 import CmdLineCompat
 
@@ -40,6 +40,9 @@ instance Show CmdLine where
     show (as :$ a) = show as ++ " " ++ show (toCmdLine a)
     show (as :> (fd, file)) = show as ++ " " ++ show (fromEnum fd) ++ "> " ++ show file
     show (as :| fd) = show as ++ " |" ++ show (fromEnum fd)
+
+outFile :: Node -> (Fd, OsString)
+outFile (FsNode name) = (stdout, name)
 
 instance Value CmdLine where
     toCmdLine = NE.toList . fst . expand
@@ -97,6 +100,9 @@ substT = targets where
         Task targets _ _ _      -> targets
         Evaluator target _  _ _ -> NE.singleton target
 
+substTarget :: (?t::Task vars) => Node
+substTarget = NE.head substT
+
 substS :: (?t::Task vars) => [Node]
 substS = sources where
     sources = case ?t of
@@ -115,3 +121,6 @@ osCommand :: (NodeListNonEmpty a, NodeList b) => ((?e::Environment vars, ?t::Tas
 osCommand cmdline = command
     (isJust <$> osExecute cmdline)
     (inTaskContext $ return $ toSignature cmdline)
+
+osBuilder :: NodeListNonEmpty t => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> t -> NE.NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
+osBuilder cmdline = Builder (osCommand cmdline) toNonEmpty id

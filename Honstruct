@@ -1,9 +1,18 @@
 env =
-  CC.toolEnv                                               +:
-  envVar @(LocalVar "jobs")       (0 :: Int)              :+:
-  envVar @(LocalVar "switch")     (Nothing :: Maybe Bool) :+:
+  CC.toolEnv                                  +:
+  envVar @(LocalVar "parameter")  (7 :: Int) :+:
   EnvNihil
 
 prog = CC.Program "example/hello" [Source [filelist|example/hello.c|] [Propagate $ eInsertTS CC.CPPDEFINES ["X"]]]
 
-project = (defaultProject env) { builders = [prog], defaultTargets = [[fs|example/hello|]] }
+pr = osBuilder (Cmd "echo" :$ subst (LocalVar "parameter") :> outFile (substTarget)) [fs|print.txt|] [Source [filelist|example/hello.c|] []]
+
+fact = ioBuilder (do
+  let [s] = substS
+  d <- readFile $ nodePathString s
+  let n = read d
+  print $ product [1..n]
+  return True
+  ) (return []) [fs|fact|] [pr]
+
+project = (defaultProject env) { builders = [prog, fact], defaultTargets = [[fs|example/hello|]] }

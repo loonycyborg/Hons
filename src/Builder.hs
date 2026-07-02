@@ -1,4 +1,4 @@
-{-# LANGUAGE ImplicitParams, BlockArguments, TypeFamilies, PatternSynonyms, ViewPatterns, DataKinds #-}
+{-# LANGUAGE ImplicitParams, BlockArguments, TypeFamilies, DataKinds #-}
 module Builder where
 import Algebra.Graph.AdjacencyMap
 import qualified Data.HashMap.Strict as HM
@@ -75,6 +75,17 @@ reifyToRuleset x = gs where
     builderTarget (n, SourceF t _)    = (n, t)
     builderTarget (n, PropagateF _ p) = (n, mkValue (p <> show n) :| [])
 
-pattern Command :: NodeListNonEmpty a => Action vars -> ActionM vars [ByteString] -> a -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
-pattern Command <- (const False -> True) where
-        Command action sigaction t s = Builder (command action sigaction) toNonEmpty id t s
+ioBuilder :: NodeListNonEmpty t => ((?e::Environment vars, ?t::Task vars) => IO Bool) -> ((?e::Environment vars, ?t::Task vars) => IO [ByteString]) -> t -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
+ioBuilder action sigaction = Builder (command actionM sigactionM) toNonEmpty id where
+    actionM = do
+        env <- getenv
+        task <- gett
+        let ?e = env
+        let ?t = task
+        liftIO action
+    sigactionM = do
+        env <- getenv
+        task <- gett
+        let ?e = env
+        let ?t = task
+        liftIO sigaction
