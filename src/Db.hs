@@ -18,7 +18,7 @@ import Database.Beam
 import Database.Beam.Migrate
 import Database.Beam.Migrate.Simple
 import Database.Beam.Sqlite.Migrate
-import Database.Beam.Backend.SQL.BeamExtensions ( runInsertReturningList )
+import Database.Beam.Backend.SQL.BeamExtensions ( runInsertReturningList, BeamHasInsertOnConflict (..) )
 import Database.SQLite.Simple
 import Database.SQLite.Simple.QQ
 import Language.Haskell.TH (Extension(DeriveAnyClass))
@@ -188,7 +188,7 @@ insertImplicitDeps conn imps = do
 
     runBeamSqlite conn do
         runInsert do
-            insert nodeMetaData.implicit_deps (insertValues rows)
+            insertOnConflict nodeMetaData.implicit_deps (insertValues rows) anyConflict onConflictDoNothing
 
 selectImplicitDeps :: Connection -> Int32 -> IO [(T.Text, T.Text)]
 selectImplicitDeps conn nid = do
