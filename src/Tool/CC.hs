@@ -18,20 +18,23 @@ import Data.Foldable
 import System.OsPath ( (-<.>), osp, isExtensionOf )
 import qualified Data.Text as T
 import qualified Data.List.NonEmpty as NE
+import qualified Data.HashMap.Strict as HM
 import Data.List.NonEmpty (NonEmpty)
 import Data.Hashable (hash)
 import GHC.Exts (IsString)
 
 import ToolTH
-import Builder (propagateIO, Builder (PropagateIO, Builder), ChainType(BuilderC,PropagatorC), depends, evaluate, emptyRuleSet)
+import Builder (propagateIO, Builder (PropagateIO, Builder), ChainType(BuilderC,PropagatorC), depends, evaluate, emptyRuleSet, propagate)
 import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult, ActionSig )
+
 
 toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
+  envVar @("cc" :. "cxxcom")    ("g++" :: StrVar)         :+:
   envVar @("cc" :. "cflags")    ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "cpppath")   ([] :: TSList IncludeDir) :+:
   envVar @("cc" :. "cppdefines") ([] :: TSList CPPDefine) :+:
-  envVar @("cc" :. "linkcom")   ("gcc" :: StrVar)         :+:
+  envVar @("cc" :. "linkcom")   (CLinker :: Linker)       :+:
   envVar @("cc" :. "linkflags") ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "libpath")   ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "libs")      ([] :: TSList Lib)        :+:
@@ -70,7 +73,17 @@ instance Value CPPDefine where
 instance IsString CPPDefine where
   fromString = CPPDefine . fromString
 
+data Linker = CLinker | CXXLinker deriving (Show, Read, Eq, Ord)
+instance Semigroup Linker where
+  (<>) = max
+instance ConstructionVariable Linker where
+  merge = max
+
 $genToolVars
+
+chooseLinkCom :: (UseEnv ToolVars vars, ?e::Environment vars) => Linker -> StrVar
+chooseLinkCom CLinker   = cccom
+chooseLinkCom CXXLinker = cxxcom
 
 data Flag where
     Literal    :: Value a => a -> Flag
@@ -134,19 +147,32 @@ flagsP = skipSpaces *> sepBy flagP (munch1 isSpace) <* skipSpaces <* eof
 parseFlags :: String -> Maybe [Flag]
 parseFlags = fmap (fst . fst) . uncons . readP_to_S flagsP
 
-genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine -> CmdLine
-genCFlags c = c :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
+genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
+genCFlags = Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
-compile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
-compile tgt src = c tgt src <> cscan tgt src where
-  c = osCommand $ genCFlags $ Cmd cccom :$ Compile :$ Output substT :$ substS
+genCXXFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
+genCXXFlags = Cmd cxxcom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
-cscan :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
-cscan tgt src =
+compile :: UseEnv ToolVars vars => ((UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine) -> Node -> Node -> RuleSet vars
+compile genFlags tgt src = c tgt src <> cscan genFlags tgt src where
+  c = osCommand $ genFlags :$ Compile :$ Output substT :$ substS
+
+ccompile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
+ccompile = compile genCFlags
+
+cxxSettings :: UseEnv ToolVars vars => RuleSet vars
+cxxSettings = propagate "cxx-settings" ([] :: [Node]) (eReplace LINKCOM CXXLinker)
+
+cxxcompile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
+cxxcompile @vars target source = compile genCXXFlags target source <> depends target cxx_settings where
+  [cxx_settings] = HM.keys (cxxSettings @vars).tasks
+
+cscan :: UseEnv ToolVars vars => ((UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine) -> Node -> Node -> RuleSet vars
+cscan @vars genFlags tgt src =
     let scan_name = nodePathString src <> ".cscan"
         val = mkValue scan_name
         scan_cmd :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-        scan_cmd = genCFlags $ Cmd cccom :$ Preprocess :$ SysDeps :$ src
+        scan_cmd = genFlags :$ Preprocess :$ SysDeps :$ src
         do_scan = do
           scan_result <- osExecutePipeStdout scan_cmd
           makefile_text <- T.pack <$> maybe (fail "Scanner command failed") decodeFilename scan_result
@@ -160,7 +186,7 @@ cscan tgt src =
       depends tgt val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd)
 
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
-link = osCommand $ Cmd linkcom :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
+link = osCommand $ Cmd (chooseLinkCom linkcom) :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
 
 data ObjectBuilder = ObjectBuilder (forall t . UseEnv ToolVars t => Node -> Node -> RuleSet t) | LiteralObject
 
@@ -169,7 +195,7 @@ program @vars (StrVar name) = link_objects . foldMap compile_object where
   compile_object :: (StrVar, ObjectBuilder) -> ([Node], RuleSet vars)
   compile_object (StrVar name, ObjectBuilder func) = ([tgt], (func @vars) tgt src) where [ tgt, src ] = map FsNode [ name -<.> [osp|.o|], name ]
   compile_object (StrVar name, LiteralObject)      = ([FsNode name], emptyRuleSet)
-  link_objects (objects, sg) = sg <> link (FsNode name) objects
+  link_objects (objects, sg) = sg <> link (FsNode name) objects <> cxxSettings
 
 pattern Program :: UseEnv ToolVars vars => StrVar -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
 pattern Program <- (const False -> True) where
@@ -177,7 +203,8 @@ pattern Program <- (const False -> True) where
     program_node (StrVar name) = NE.singleton $ FsNode name
     source_builders            = NE.toList . fmap source_builder
     source_builder (FsNode name)
-      | [osp|.c|] `isExtensionOf` name = (StrVar name, ObjectBuilder compile)
+      | [osp|.c|] `isExtensionOf` name = (StrVar name, ObjectBuilder ccompile)
+      | [osp|.cpp|] `isExtensionOf` name = (StrVar name, ObjectBuilder cxxcompile)
       | otherwise    = (StrVar name, LiteralObject)
     source_builder _ = error "Value nodes are not supported as program sources"
 
