@@ -33,22 +33,31 @@ data TaskmasterSettings = TaskmasterSettings {
 
 data TaskStatus vars where
     Done    :: { target :: Node, env :: Environment vars, implicit :: [Node], changed :: Ruling } -> TaskStatus vars
+    Pending :: { target :: Node, async :: Maybe (Async (TaskStatus vars)) } -> TaskStatus vars
     Failed  :: { target :: Node } -> TaskStatus vars
     deriving Show
+
+instance Show (Async (TaskStatus vars)) where
+    show _ = "<Pending Async>"
 
 taskFailed :: TaskStatus vars -> Bool
 taskFailed (Failed {}) = True
 taskFailed _           = False
 
+pendingAsync :: TaskStatus vars -> Maybe (Async (TaskStatus vars))
+pendingAsync (Pending _ (Just as)) = Just as
+pendingAsync _                     = Nothing
+
 data BuildException = TaskFailed deriving (Show)
 instance Exception BuildException
 
-classifyStatuses :: Foldable t => t (TaskStatus vars) -> ([TaskStatus vars], [TaskStatus vars])
-classifyStatuses = foldr classifyStatus ([], []) where
-    classifyStatus c (lDone, lFailed) =
+classifyStatuses :: Foldable t => t (TaskStatus vars) -> ([TaskStatus vars], [TaskStatus vars], [TaskStatus vars])
+classifyStatuses = foldr classifyStatus ([], [], []) where
+    classifyStatus c (lDone, lPending, lFailed) =
         case c of
-            Done {}   -> (c:lDone,   lFailed)
-            Failed {} -> (  lDone, c:lFailed)
+            Done {}    -> (c:lDone,   lPending,   lFailed)
+            Pending {} -> (  lDone, c:lPending,   lFailed)
+            Failed {}  -> (  lDone,   lPending, c:lFailed)
 
 executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
 executeTask env task@(Task targets sources action sign) = do
@@ -71,40 +80,44 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
         0 -> return Nothing
         _ -> Just <$> newQSem settings.jobs
     let
-        extract_implicit a = (a, case unsafePerformIO do either wait return a of
+        extract_implicit a = (a, case a of
             Done _ _ implicit _ -> implicit
-            Failed _ -> []
+            _ -> []
             )
-        buildNode xs       _     _     ((b:_):bs) = error $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
-        buildNode (node:_) tsrcs osrcs []         = extract_implicit . unsafePerformIO $ do
+        buildNode _         xs       _     _     ((b:_):bs) = error $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
+        buildNode prev_pass (node:_) tsrcs osrcs []         = extract_implicit . unsafePerformIO $ do
             let allsrcs = tsrcs <> osrcs
-            let (pending, complete) = partitionEithers allsrcs
-            let (done, failed) = classifyStatuses complete
-            evaluateNode allsrcs pending done failed
+            let (done, pending, failed) = classifyStatuses allsrcs
+            case HM.lookup node prev_pass of
+                Nothing                  -> evaluateNode pending done failed
+                Just (Pending _ Nothing) -> evaluateNode pending done failed
+                Just p@(Pending _ (Just as)) -> do
+                    r <- poll as
+                    case r of
+                        Just (Right status) -> return status
+                        Nothing -> return p
+                Just status -> return status
             where
                 task = node `HM.lookup` ruleset.tasks
-                evaluateNode allsrcs (_:_) done _     = do
-                    Left <$> async do
-                        (async_done, async_failed) <- classifyStatuses <$> mapM (either wait return) allsrcs
-                        evaluateNode allsrcs [] async_done async_failed >>= either wait return
-                evaluateNode _       []    _    (_:_) = Right <$> returnFail
-                evaluateNode _       []    done []    = do
+                evaluateNode _      _   (_:_) = return $ Failed node
+                evaluateNode (_:_)  _      [] = return $ Pending node Nothing
+                evaluateNode []     done   [] = do
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) done
                     let implicit_deps = map ((.target) &&& (.implicit)) $
                             filter (not . null . (.implicit)) $
                             filter ((/=Unchanged) . (.changed)) done
                     updateImplicitDeps decider implicit_deps
                     case task of
-                        Nothing -> Right <$> returnUpToDate source_env []
+                        Nothing -> returnUpToDate source_env []
                         Just t  -> do
                             let sources_changed = mconcat $ map (.changed) done
                             signature <- signTask source_env t
                             needs_rebuild <- if null t.sources then return True else needsRebuild decider node signature
                             case (sources_changed, needs_rebuild || settings.alwaysMake) of
-                                (Unchanged, False) -> Right <$> do
+                                (Unchanged, False) -> do
                                     implicit <- reuseImplicitDeps decider node
                                     returnUpToDate source_env implicit
-                                _                  -> Left  <$> async do
+                                _                  -> Pending node . Just <$> async do
                                     new_var <- newEmptyMVar
                                     cached_var <- atomicModifyIORef' task_cache \cache ->
                                         case HM.lookup t cache of
@@ -147,7 +160,15 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                 Just sem -> bracket_ (waitQSem sem) (signalQSem sem)
                 Nothing  -> id
     result <- catch
-        do either wait return $ depthFirstFold (flip (:)) buildNode ruleset.graph goal []
+        do
+            let build_graph prev = do
+                    (a, st) <- evaluate $ depthFirstFold (flip (:)) (buildNode prev) ruleset.graph goal []
+                    case a of
+                        Pending {} -> do
+                            waitAny $ mapMaybe pendingAsync (HM.elems st)
+                            build_graph st
+                        _ -> return a
+                in build_graph HM.empty
         do \(e :: BuildException) -> return $ Failed goal
     case result of
         Failed {} -> do

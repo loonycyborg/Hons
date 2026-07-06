@@ -32,9 +32,9 @@ buildOrder ruleset goal = L.reverse $ L.map mkItem $ topologicalSort ruleset.gra
 
 data VertexSearchState a = Discovered | Finished a deriving (Show, Eq)
 
-depthFirstFold :: (a1 -> Node -> a1) -> (a1 -> [a2] -> [a2] -> [a1] -> (a2, [Node])) -> DepGraph -> Node -> a1 -> a2
+depthFirstFold :: (a1 -> Node -> a1) -> (a1 -> [a2] -> [a2] -> [a1] -> (a2, [Node])) -> DepGraph -> Node -> a1 -> (a2, HM.HashMap Node a2)
 depthFirstFold discover_func finish_func graph vertex a1 =
-    fst $ fst $ go HM.empty vertex (discover_func a1 vertex) where
+    finalize_result $ go HM.empty vertex (discover_func a1 vertex) where
         go search vertex a1 = finish_vertex $ check_implicit_deps_recursively $ foldr check_edge (HM.insert vertex (Discovered, a1) search, [], [], [], []) (postSet vertex graph)
             where
             check_edge target_vertex (search, tree_edges, front_cross_edges, back_edges, implicit) = case HM.lookup target_vertex search of
@@ -49,8 +49,9 @@ depthFirstFold discover_func finish_func graph vertex a1 =
                 foldr check_edge (s, t, f, b, []) (filter (not <$> (`Set.member` postSet vertex graph)) implicit)
             check_implicit_deps_recursively =
                 until (\(_, _, _, _, implicit) -> null implicit) check_implicit_deps
+        finalize_result ((goal_a2, _), search) = (goal_a2, HM.map (\(Finished (a2, _), _) -> a2) search)
 
 topologicalSort :: DepGraph -> Node -> L.NonEmpty Node
-topologicalSort graph vertex = depthFirstFold (flip (:)) topS graph vertex [] where
+topologicalSort graph vertex = fst $ depthFirstFold (flip (:)) topS graph vertex [] where
     topS (x:_) xs _ []         = (sconcat $ L.singleton x L.:| xs, [])
     topS xs    _  _ ((b:_):bs) = error $ "Dependency cycle detected: " ++ show (b : reverse (b : takeWhile (/=b) xs))
