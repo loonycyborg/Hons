@@ -20,7 +20,7 @@ import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList, toNonEmpty )
 import Environment
 import Action (Action, getenv, ActionM, gett, Task (Task, Evaluator))
 import DepGraph (RuleSet)
-import Builder (command, Builder (..), ChainType(..))
+import Builder (command, Builder (..), ChainType(..), Tag (..))
 import Value
 import CmdLineCompat
 
@@ -126,4 +126,4 @@ osCommand cmdline = command
     (inTaskContext $ return $ toSignature cmdline)
 
 osBuilder :: NodeListNonEmpty t => ((?e::Environment vars, ?t::Task vars) => CmdLine) -> t -> NE.NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
-osBuilder cmdline = Builder (osCommand cmdline) toNonEmpty id
+osBuilder cmdline = Builder TagNihil (osCommand cmdline) toNonEmpty id

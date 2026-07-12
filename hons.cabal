@@ -57,6 +57,7 @@ library
     text,
     time,
     transformers,
+    typerep-map,
     unix >=2.8.5.1,
     unordered-containers,
 

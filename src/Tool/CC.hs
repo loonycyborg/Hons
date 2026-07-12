@@ -13,9 +13,10 @@ import Data.Makefile.Parse (parseMakefileContents)
 import Data.Char
 import Data.String (fromString)
 import Data.List (uncons)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, isJust)
 import Data.Foldable
-import System.OsPath ( (-<.>), osp, isExtensionOf )
+import Control.Applicative ((<|>))
+import System.OsPath ( (-<.>), osp, isExtensionOf, OsPath )
 import qualified Data.Text as T
 import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HM
@@ -24,7 +25,7 @@ import Data.Hashable (hash)
 import GHC.Exts (IsString)
 
 import ToolTH
-import Builder (propagateIO, Builder (PropagateIO, Builder), ChainType(BuilderC,PropagatorC), depends, evaluate, emptyRuleSet, propagate)
+import Builder (propagateIO, Builder (PropagateIO, Builder), ChainType(BuilderC,PropagatorC), depends, evaluate, emptyRuleSet, propagate, Tag (..), tag, TagRegistry)
 import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult, ActionSig )
 
 
@@ -78,12 +79,10 @@ instance Semigroup Linker where
   (<>) = max
 instance ConstructionVariable Linker where
   merge = max
+instance Monoid Linker where
+  mempty = CLinker
 
 $genToolVars
-
-chooseLinkCom :: (UseEnv ToolVars vars, ?e::Environment vars) => Linker -> StrVar
-chooseLinkCom CLinker   = cccom
-chooseLinkCom CXXLinker = cxxcom
 
 data Flag where
     Literal    :: Value a => a -> Flag
@@ -160,12 +159,8 @@ compile genFlags tgt src = c tgt src <> cscan genFlags tgt src where
 ccompile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
 ccompile = compile genCFlags
 
-cxxSettings :: UseEnv ToolVars vars => RuleSet vars
-cxxSettings = propagate "cxx-settings" ([] :: [Node]) (eReplace LINKCOM CXXLinker)
-
 cxxcompile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
-cxxcompile @vars target source = compile genCXXFlags target source <> depends target cxx_settings where
-  [cxx_settings] = HM.keys (cxxSettings @vars).tasks
+cxxcompile = compile genCXXFlags
 
 cscan :: UseEnv ToolVars vars => ((UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine) -> Node -> Node -> RuleSet vars
 cscan @vars genFlags tgt src =
@@ -185,28 +180,53 @@ cscan @vars genFlags tgt src =
     in
       depends tgt val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd)
 
-link :: (UseEnv ToolVars vars, Value s, NodeList s) => Node -> s -> RuleSet vars
-link = osCommand $ Cmd (chooseLinkCom linkcom) :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS
+link :: (UseEnv ToolVars vars, Value s, NodeList s) => Linker -> Node -> s -> RuleSet vars
+link @vars linker = osCommand $ Cmd ld :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS where
+  ld :: (?e::Environment vars) => StrVar
+  ld = case linker of
+    CLinker   -> cccom
+    CXXLinker -> cxxcom
 
-data ObjectBuilder = ObjectBuilder (forall t . UseEnv ToolVars t => Node -> Node -> RuleSet t) | LiteralObject
-
-program :: UseEnv ToolVars vars => StrVar -> [(StrVar, ObjectBuilder)] -> RuleSet vars
+program :: UseEnv ToolVars vars => StrVar -> [(StrVar, Maybe SourceT)] -> RuleSet vars
 program @vars (StrVar name) = link_objects . foldMap compile_object where
-  compile_object :: (StrVar, ObjectBuilder) -> ([Node], RuleSet vars)
-  compile_object (StrVar name, ObjectBuilder func) = ([tgt], (func @vars) tgt src) where [ tgt, src ] = map FsNode [ name -<.> [osp|.o|], name ]
-  compile_object (StrVar name, LiteralObject)      = ([FsNode name], emptyRuleSet)
-  link_objects (objects, sg) = sg <> link (FsNode name) objects <> cxxSettings
+  compile_object :: (StrVar, Maybe SourceT) -> ([Node], RuleSet vars, Linker)
+  compile_object (StrVar name, Just (SourceT t)) = ([tgt], objectCompiler t tgt src, objectLinker t) where [ tgt, src ] = map FsNode [ name -<.> [osp|.o|], name ]
+  compile_object (StrVar name, Nothing)          = ([FsNode name], emptyRuleSet, CLinker)
+  link_objects (objects, sg, linker) = sg <> link linker (FsNode name) objects
 
 pattern Program :: UseEnv ToolVars vars => StrVar -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
 pattern Program <- (const False -> True) where
-  Program tgt src = Builder program program_node source_builders tgt src where
+  Program tgt src = Builder TagNihil program program_node source_builders tgt src where
     program_node (StrVar name) = NE.singleton $ FsNode name
+    source_builders :: (?tags::TagRegistry) => NonEmpty Node -> [(StrVar, Maybe SourceT)]
     source_builders            = NE.toList . fmap source_builder
-    source_builder (FsNode name)
-      | [osp|.c|] `isExtensionOf` name = (StrVar name, ObjectBuilder ccompile)
-      | [osp|.cpp|] `isExtensionOf` name = (StrVar name, ObjectBuilder cxxcompile)
-      | otherwise    = (StrVar name, LiteralObject)
-    source_builder _ = error "Value nodes are not supported as program sources"
+    source_builder n@(FsNode name) = (StrVar name, tag @SourceT n <|> autoTag name)
+    source_builder _               = error "Value nodes are not supported as program sources"
+
+class IsProgramSource a where
+  extensions :: a -> [OsPath]
+  extensions a = []
+  objectCompiler :: a -> (UseEnv ToolVars vars => Node -> Node -> RuleSet vars)
+  objectLinker   :: a -> Linker
+
+data SourceT = forall a . (IsProgramSource a, Show a) => SourceT { filetype :: a }
+deriving instance Show SourceT
+
+data C = C deriving Show
+instance IsProgramSource C where
+  extensions _ = [[osp|.c|]]
+  objectCompiler _ = ccompile
+  objectLinker _ = CLinker
+
+data CXX = CXX deriving Show
+instance IsProgramSource CXX where
+  extensions _ = [[osp|.cpp|], [osp|.cc|], [osp|.cxx|], [osp|.C|]]
+  objectCompiler _ = cxxcompile
+  objectLinker _ = CXXLinker
+
+autoTag :: OsPath -> Maybe SourceT
+autoTag path = find @NonEmpty matches [SourceT C, SourceT CXX] where
+  matches (SourceT filetype) = isJust $ find (`isExtensionOf` path) (extensions filetype)
 
 pkgConfig :: (UseEnv ToolVars vars) => String -> ActionEval vars
 pkgConfig p = do
