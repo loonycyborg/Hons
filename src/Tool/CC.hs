@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase, PatternSynonyms, ViewPatterns, QuasiQuotes, TypeAbstractions #-}
+{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase, QuasiQuotes, TypeAbstractions #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -187,21 +187,19 @@ link @vars linker = osCommand $ Cmd ld :$ Literal linkflags :$ LibPath libpath :
     CLinker   -> cccom
     CXXLinker -> cxxcom
 
-program :: UseEnv ToolVars vars => StrVar -> [(StrVar, Maybe SourceT)] -> RuleSet vars
-program @vars (StrVar name) = link_objects . foldMap compile_object where
-  compile_object :: (StrVar, Maybe SourceT) -> ([Node], RuleSet vars, Linker)
-  compile_object (StrVar name, Just (SourceT t)) = ([tgt], objectCompiler t tgt src, objectLinker t) where [ tgt, src ] = map FsNode [ name -<.> [osp|.o|], name ]
-  compile_object (StrVar name, Nothing)          = ([FsNode name], emptyRuleSet, CLinker)
-  link_objects (objects, sg, linker) = sg <> link linker (FsNode name) objects
-
-pattern Program :: UseEnv ToolVars vars => StrVar -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
-pattern Program <- (const False -> True) where
-  Program tgt src = Builder TagNihil program program_node source_builders tgt src where
+program :: UseEnv ToolVars vars => StrVar -> NonEmpty (Builder vars BuilderC) -> Builder vars BuilderC
+program = Builder TagNihil program_builder program_node source_builders where
     program_node (StrVar name) = NE.singleton $ FsNode name
     source_builders :: (?tags::TagRegistry) => NonEmpty Node -> [(StrVar, Maybe SourceT)]
     source_builders            = NE.toList . fmap source_builder
     source_builder n@(FsNode name) = (StrVar name, tag @SourceT n <|> autoTag name)
     source_builder _               = error "Value nodes are not supported as program sources"
+    program_builder :: UseEnv ToolVars vars => StrVar -> [(StrVar, Maybe SourceT)] -> RuleSet vars
+    program_builder @vars (StrVar name) = link_objects . foldMap compile_object where
+      compile_object :: (StrVar, Maybe SourceT) -> ([Node], RuleSet vars, Linker)
+      compile_object (StrVar name, Just (SourceT t)) = ([tgt], objectCompiler t tgt src, objectLinker t) where [ tgt, src ] = map FsNode [ name -<.> [osp|.o|], name ]
+      compile_object (StrVar name, Nothing)          = ([FsNode name], emptyRuleSet, CLinker)
+      link_objects (objects, sg, linker) = sg <> link linker (FsNode name) objects
 
 class IsProgramSource a where
   extensions :: a -> [OsPath]
@@ -256,6 +254,5 @@ pkgConfig p = do
     . eInsertTS LIBPATH newlibpath
   return (EvalResult $ StrVar version, [])
 
-pattern Pkg :: (UseEnv ToolVars vars) => String -> Builder vars PropagatorC
-pattern Pkg <- (const False -> True) where
-  Pkg name = PropagateIO (pkgConfig name) (name ++ "-pkg-config")
+pkg :: (UseEnv ToolVars vars) => String -> Builder vars PropagatorC
+pkg name = PropagateIO (pkgConfig name) (name ++ "-pkg-config")

@@ -3,7 +3,7 @@ env =
   envVar @(LocalVar "parameter")  (7 :: Int) :+:
   EnvNihil
 
-prog = CC.Program "example/hello" [[sourcelist|example/hello.c|] [Propagate $ eInsertTS CC.CPPDEFINES ["X"]]]
+prog = CC.program "example/hello" [[sourcelist|example/hello.c|] [Propagate $ eInsertTS CC.CPPDEFINES ["X"]]]
 
 pr = osBuilder (Cmd "echo" :$ substL "parameter" :> outFile (substTarget)) [fs|print.txt|] [[sourcelist|example/hello.c|] []]
 
