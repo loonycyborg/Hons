@@ -123,3 +123,6 @@ sourcelist = QuasiQuoter
     , quoteType = error "sourcelist quasiquoter doesn't support use as type"
     , quoteDec  = error "sourcelist quasiquoter doesn't support use as declaration"
     }
+
+aliasValue :: String -> [Builder vars PropagatorC] -> Builder vars BuilderC
+aliasValue name = Source TagNihil (mkValue name)
