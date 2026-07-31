@@ -33,6 +33,7 @@ toolEnv =
   envVar @("cc" :. "cccom")     ("gcc" :: StrVar)         :+:
   envVar @("cc" :. "cxxcom")    ("g++" :: StrVar)         :+:
   envVar @("cc" :. "cflags")    ([] :: TSList StrVar)     :+:
+  envVar @("cc" :. "cstd")      (Nothing :: Maybe CStd)   :+:
   envVar @("cc" :. "cpppath")   ([] :: TSList IncludeDir) :+:
   envVar @("cc" :. "cppdefines") ([] :: TSList CPPDefine) :+:
   envVar @("cc" :. "linkcom")   (CLinker :: Linker)       :+:
@@ -74,6 +75,10 @@ instance Value CPPDefine where
 instance IsString CPPDefine where
   fromString = CPPDefine . fromString
 
+data CStd = C90 | C99 | C11 | C17 | C23 deriving (Show, Read, Eq)
+instance ConstructionVariable CStd where
+  merge = const
+
 data Linker = CLinker | CXXLinker deriving (Show, Read, Eq, Ord)
 instance Semigroup Linker where
   (<>) = max
@@ -90,6 +95,7 @@ data Flag where
     Preprocess :: Flag
     Deps       :: Flag
     SysDeps    :: Flag
+    Std        :: CStd -> Flag
     Output     :: Value a => a -> Flag
     CPPPath    :: (ValueList f IncludeDir) => f IncludeDir -> Flag
     CPPDefines :: (ValueList f CPPDefine) => f CPPDefine -> Flag
@@ -104,6 +110,7 @@ instance Value Flag where
     toCmdLine Preprocess = [encodeVal "-E"]
     toCmdLine Deps = [encodeVal "-MM"]
     toCmdLine SysDeps = [encodeVal "-M"]
+    toCmdLine (Std std) = [encodeVal $ "-std=" <> map toLower (show std)]
     toCmdLine (Output a) = encodeVal "-o" : toCmdLine a
     toCmdLine (CPPPath as) = concatMap cppflag as where
       cppflag x = case x of
@@ -121,6 +128,7 @@ flagP :: ReadP Flag
 flagP = choice [
     Compile <$ string "-c",
     Output <$> (string "-o" *> literal),
+    Std . read_literal <$> (string "-std=" *> literal),
     CPPPath . (:[]) <$> (
       (Include <$> (string "-I" *> literal)) +++
       (SystemInclude <$> (string "-isystem=" *> literal)) +++
@@ -139,6 +147,7 @@ flagP = choice [
     escape_quote = char '\'' *> munch (/='\'') <* char '\''
     escape_backslash = char '\\' *> ((:[]) <$> get)
     escape = choice [escape_quote, escape_backslash]
+    read_literal = read . map toUpper . toString
 
 flagsP :: ReadP [Flag]
 flagsP = skipSpaces *> sepBy flagP (munch1 isSpace) <* skipSpaces <* eof
@@ -147,7 +156,7 @@ parseFlags :: String -> Maybe [Flag]
 parseFlags = fmap (fst . fst) . uncons . readP_to_S flagsP
 
 genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-genCFlags = Cmd cccom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
+genCFlags = Cmd cccom :$ (Std <$> cstd) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 genCXXFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
 genCXXFlags = Cmd cxxcom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines

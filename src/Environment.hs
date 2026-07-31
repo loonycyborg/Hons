@@ -146,10 +146,13 @@ eUpdate n f env =
       Environment env.prototype env.defaults (HM.alter alter var env.overrides)
 
 eReplace :: forall {vars} {v} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars) => v -> Environment vars -> Environment vars
-eReplace n v = eUpdate n (\_-> Just v)
+eReplace n v = eUpdate n (Just . const v)
 
 eInsertTS :: forall {vars} {v} {a} . forall (n :: VarName) -> (ConstructionVariable v, VarNameVal n, v ~ LookupType n vars, v ~ TSList a, ?target::Node) => [a] -> Environment vars -> Environment vars
 eInsertTS n val = eUpdate n (Just . insertTS ?target val)
+
+eDefault :: forall {vars} {v} {a} . forall (n :: VarName) -> (ConstructionVariable (v a), VarNameVal n, v a ~ LookupType n vars, Alternative v) => a -> Environment vars -> Environment vars
+eDefault n a = eUpdate n (Just . (<|> pure a))
 
 class (Eq a, Typeable a, Show a, Read a) => ConstructionVariable a where
   merge :: a -> a -> a
@@ -160,6 +163,7 @@ exclusiveMerge a b = if a == b then a else error "conflicting variable values"
 readFromCmdLine :: forall a . ConstructionVariable a => String -> a
 readFromCmdLine s = case readP_to_S (fromCmdLine @a <* eof) s of
   (result, ""):_ -> result
+  _              -> error "Failed to parse variable"
 instance ConstructionVariable Bool where
   merge = exclusiveMerge
 instance ConstructionVariable Int where
