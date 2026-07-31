@@ -12,8 +12,8 @@ import Data.Makefile
 import Data.Makefile.Parse (parseMakefileContents)
 import Data.Char
 import Data.String (fromString)
-import Data.List (uncons)
-import Data.Maybe (mapMaybe, isJust)
+import Data.List (uncons, stripPrefix)
+import Data.Maybe (mapMaybe, isJust, fromJust)
 import Data.Foldable
 import Control.Applicative ((<|>))
 import System.OsPath ( (-<.>), osp, isExtensionOf, OsPath )
@@ -34,6 +34,7 @@ toolEnv =
   envVar @("cc" :. "cxxcom")    ("g++" :: StrVar)         :+:
   envVar @("cc" :. "cflags")    ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "cstd")      (Nothing :: Maybe CStd)   :+:
+  envVar @("cc" :. "cxxstd")    (Nothing :: Maybe CXXStd) :+:
   envVar @("cc" :. "cpppath")   ([] :: TSList IncludeDir) :+:
   envVar @("cc" :. "cppdefines") ([] :: TSList CPPDefine) :+:
   envVar @("cc" :. "linkcom")   (CLinker :: Linker)       :+:
@@ -79,6 +80,12 @@ data CStd = C90 | C99 | C11 | C17 | C23 deriving (Show, Read, Eq)
 instance ConstructionVariable CStd where
   merge = const
 
+data CXXStd = CXX98 | CXX03 | CXX11 | CXX17 | CXX20 | CXX23 | CXX26 deriving (Show, Read, Eq)
+instance ConstructionVariable CXXStd where
+  merge = const
+cxxStdYear :: CXXStd -> [Char]
+cxxStdYear = fromJust . stripPrefix "CXX" . show
+
 data Linker = CLinker | CXXLinker deriving (Show, Read, Eq, Ord)
 instance Semigroup Linker where
   (<>) = max
@@ -96,6 +103,7 @@ data Flag where
     Deps       :: Flag
     SysDeps    :: Flag
     Std        :: CStd -> Flag
+    StdXX      :: CXXStd -> Flag
     Output     :: Value a => a -> Flag
     CPPPath    :: (ValueList f IncludeDir) => f IncludeDir -> Flag
     CPPDefines :: (ValueList f CPPDefine) => f CPPDefine -> Flag
@@ -111,6 +119,7 @@ instance Value Flag where
     toCmdLine Deps = [encodeVal "-MM"]
     toCmdLine SysDeps = [encodeVal "-M"]
     toCmdLine (Std std) = [encodeVal $ "-std=" <> map toLower (show std)]
+    toCmdLine (StdXX std) = [encodeVal $ "-std=c++" <> cxxStdYear std]
     toCmdLine (Output a) = encodeVal "-o" : toCmdLine a
     toCmdLine (CPPPath as) = concatMap cppflag as where
       cppflag x = case x of
@@ -159,7 +168,7 @@ genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdL
 genCFlags = Cmd cccom :$ (Std <$> cstd) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 genCXXFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-genCXXFlags = Cmd cxxcom :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
+genCXXFlags = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 compile :: UseEnv ToolVars vars => ((UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine) -> Node -> Node -> RuleSet vars
 compile genFlags tgt src = c tgt src <> cscan genFlags tgt src where
