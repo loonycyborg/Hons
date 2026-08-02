@@ -97,7 +97,8 @@ doBuild settings argument_strings (ProjectHolder (Project (Environment proto def
             map (resolveTarget g) target_strings
     let user_overrides = readVars proto override_strings
     let goal_graph = r <> depends goal targets
-    result <- build settings goal_graph (Environment proto (HM.union user_overrides defaults) overrides) goal
+    (result, full_graph) <- build settings goal_graph (Environment proto (HM.union user_overrides defaults) overrides) goal
+    writeFile "graph_full.dot" (exportViaShow full_graph)
     when (null targets) do
         print "hons: warning: no targets built because no targets in command line and no default targets in build script"
     bool exitFailure exitSuccess result

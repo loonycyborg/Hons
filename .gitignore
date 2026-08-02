@@ -1,3 +1,4 @@
 dist-*
 graph.dot
+graph_full.dot
 .ghc.environment.*

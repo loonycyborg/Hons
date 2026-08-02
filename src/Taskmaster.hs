@@ -16,6 +16,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent.QSem
 import Control.Exception
 import Control.Arrow
+import Data.Bifunctor ( Bifunctor(bimap) )
 
 import Action
 import Node
@@ -73,7 +74,7 @@ executeEvaluator env task@(Evaluator target _ eval _) = let ?target = target in 
         do runReaderT (runStateT eval env) task
         do \(e :: SomeException) -> putStrLn ("hons: " <> show target <> " : evaluation threw exception: " <> displayException e) >> return ((ResultFailure, []), env)
 
-build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO Bool
+build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO (Bool, DepGraph)
 build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -> do
     task_cache <- newIORef HM.empty
     parallel_limit <- case settings.jobs of
@@ -159,19 +160,19 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
             case parallel_limit of
                 Just sem -> bracket_ (waitQSem sem) (signalQSem sem)
                 Nothing  -> id
-    result <- catch
+    result <- bimap (not . taskFailed) ((ruleset.graph <>) . implicit_edges) <$> catch
         do
             let build_graph prev = do
-                    (a, st) <- evaluate $ depthFirstFold (flip (:)) (buildNode prev) ruleset.graph goal []
+                    r@(a, st) <- evaluate $ depthFirstFold (flip (:)) (buildNode prev) ruleset.graph goal []
                     case a of
                         Pending {} -> do
                             waitAny $ mapMaybe pendingAsync (HM.elems st)
                             build_graph st
-                        _ -> return a
+                        _ -> return r
                 in build_graph HM.empty
-        do \(e :: BuildException) -> return $ Failed goal
-    case result of
-        Failed {} -> do
-            putStrLn "hons: *** build failed"
-            return False
-        _         -> return True
+        do \(e :: BuildException) -> return (Failed goal, HM.empty)
+    unless (fst result) do
+        putStrLn "hons: *** build failed"
+    return result
+    where implicit_edges statuses = overlays $ implicit_node_edges <$> adjacencyList ruleset.graph where
+            implicit_node_edges (source, targets) = edges $ map (source,) $ targets >>= (maybe [] (.implicit) <$> (`HM.lookup` statuses))
