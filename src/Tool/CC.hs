@@ -1,4 +1,5 @@
-{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase, QuasiQuotes, TypeAbstractions #-}
+{-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase, QuasiQuotes, TypeAbstractions,
+  DeriveAnyClass, NoGeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -11,6 +12,7 @@ import Text.ParserCombinators.ReadP
 import Data.Makefile
 import Data.Makefile.Parse (parseMakefileContents)
 import Data.Char
+import Data.Bool
 import Data.String (fromString)
 import Data.List (uncons, stripPrefix)
 import Data.Maybe (mapMaybe, isJust, fromJust)
@@ -22,11 +24,13 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HM
 import Data.List.NonEmpty (NonEmpty)
 import Data.Hashable (hash)
+import Data.Aeson (FromJSON (..), genericParseJSON, Options (..), defaultOptions, camelTo2, eitherDecodeFileStrict)
 import GHC.Exts (IsString)
+import GHC.Generics (Generic)
 
 import ToolTH
 import Builder (propagateIO, Builder (PropagateIO, Builder), ChainType(BuilderC,PropagatorC), depends, evaluate, emptyRuleSet, propagate, Tag (..), tag, TagRegistry)
-import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult, ActionSig )
+import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult, ActionSig, getenv, liftIO )
 
 
 toolEnv =
@@ -35,6 +39,7 @@ toolEnv =
   envVar @("cc" :. "cflags")    ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "cstd")      (Nothing :: Maybe CStd)   :+:
   envVar @("cc" :. "cxxstd")    (Nothing :: Maybe CXXStd) :+:
+  envVar @("cc" :. "cxxmodules") (False :: Bool)          :+:
   envVar @("cc" :. "cpppath")   ([] :: TSList IncludeDir) :+:
   envVar @("cc" :. "cppdefines") ([] :: TSList CPPDefine) :+:
   envVar @("cc" :. "linkcom")   (CLinker :: Linker)       :+:
@@ -76,11 +81,11 @@ instance Value CPPDefine where
 instance IsString CPPDefine where
   fromString = CPPDefine . fromString
 
-data CStd = C90 | C99 | C11 | C17 | C23 deriving (Show, Read, Eq)
+data CStd = C90 | C99 | C11 | C17 | C23 deriving (Show, Read, Eq, Ord)
 instance ConstructionVariable CStd where
   merge = const
 
-data CXXStd = CXX98 | CXX03 | CXX11 | CXX17 | CXX20 | CXX23 | CXX26 deriving (Show, Read, Eq)
+data CXXStd = CXX98 | CXX03 | CXX11 | CXX17 | CXX20 | CXX23 | CXX26 deriving (Show, Read, Eq, Ord)
 instance ConstructionVariable CXXStd where
   merge = const
 cxxStdYear :: CXXStd -> [Char]
@@ -104,6 +109,8 @@ data Flag where
     SysDeps    :: Flag
     Std        :: CStd -> Flag
     StdXX      :: CXXStd -> Flag
+    CXXModules :: Flag
+    CXXScan    :: Value a => a -> Flag
     Output     :: Value a => a -> Flag
     CPPPath    :: (ValueList f IncludeDir) => f IncludeDir -> Flag
     CPPDefines :: (ValueList f CPPDefine) => f CPPDefine -> Flag
@@ -120,6 +127,8 @@ instance Value Flag where
     toCmdLine SysDeps = [encodeVal "-M"]
     toCmdLine (Std std) = [encodeVal $ "-std=" <> map toLower (show std)]
     toCmdLine (StdXX std) = [encodeVal $ "-std=c++" <> cxxStdYear std]
+    toCmdLine CXXModules = [encodeVal "-fmodules"]
+    toCmdLine (CXXScan json) = [encodeVal "-fdeps-format=p1689r5"] <> ((encodeVal "-fdeps-file="<>) <$> toCmdLine json)
     toCmdLine (Output a) = encodeVal "-o" : toCmdLine a
     toCmdLine (CPPPath as) = concatMap cppflag as where
       cppflag x = case x of
@@ -168,7 +177,7 @@ genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdL
 genCFlags = Cmd cccom :$ (Std <$> cstd) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 genCXXFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-genCXXFlags = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
+genCXXFlags = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ bool (Literal ()) CXXModules cxxmodules :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 compile :: UseEnv ToolVars vars => ((UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine) -> Node -> Node -> RuleSet vars
 compile genFlags tgt src = c tgt src <> cscan genFlags tgt src where
@@ -180,21 +189,35 @@ ccompile = compile genCFlags
 cxxcompile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
 cxxcompile = compile genCXXFlags
 
+jsopts :: Options
+jsopts = defaultOptions  { fieldLabelModifier = camelTo2 '-' }
+
+data P1689r5Module = P1689r5Module { logicalName :: String, compiledModulePath :: Maybe String } deriving (Show, Generic)
+instance FromJSON P1689r5Module where parseJSON = genericParseJSON jsopts
+data P1689r5Rule = P1689r5Rule { provides :: Maybe [P1689r5Module], requires :: Maybe [P1689r5Module] } deriving (Show, Generic, FromJSON)
+newtype P1689r5DepsFile = P1689r5DepsFile { rules :: [P1689r5Rule] } deriving (Show, Generic, FromJSON)
+
 cscan :: UseEnv ToolVars vars => ((UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine) -> Node -> Node -> RuleSet vars
 cscan @vars genFlags tgt src =
     let scan_name = nodePathString src <> ".cscan"
+        module_deps_name = nodePathString src <> ".json"
         val = mkValue scan_name
         scan_cmd :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-        scan_cmd = genFlags :$ Preprocess :$ SysDeps :$ src
+        scan_cmd = genFlags :$ Preprocess :$ SysDeps :$ bool (Literal ()) (CXXScan module_deps_name) cxxmodules :$ src
         do_scan = do
           scan_result <- osExecutePipeStdout scan_cmd
+          env <- getenv
+          module_deps <- if eLookup CXXMODULES env then do
+              liftIO $ either error id <$> eitherDecodeFileStrict module_deps_name
+            else return $ P1689r5DepsFile []
+          let gcms = fmap (mkFsNodeFromString . ("gcm.cache/"<>) . (<>".gcm") . (.logicalName)) $ concat $ mapMaybe (.requires) module_deps.rules
           makefile_text <- T.pack <$> maybe (fail "Scanner command failed") decodeFilename scan_result
           makefile <- either fail return $ parseMakefileContents makefile_text
           let deps = map dep2node $ concat $ mapMaybe extract_dep makefile.entries where
                 extract_dep (Rule _ deps _) = Just deps
                 extract_dep _               = Nothing
                 dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
-          return (EvalResult $ hash deps, deps)
+          return (EvalResult $ hash deps, deps <> gcms)
     in
       depends tgt val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd)
 
