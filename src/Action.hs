@@ -16,7 +16,7 @@ import Data.Binary (Binary)
 
 type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
 type Action vars = (ActionM vars) Bool
-type ActionEval vars = (?target :: Node) => (ActionM vars) (EvalResult, [Node])
+type ActionEval vars = (?target :: Node) => (ActionM vars) (EvalResult, [(Node, Node)])
 type ActionSig vars = (ActionM vars) [ByteString]
 
 data Task vars where

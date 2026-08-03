@@ -53,8 +53,10 @@ deriving instance Eq Nodes
 
 data ImplicitDepsT f =
     ImplicitDeps
-    { source       :: PrimaryKey NodesT f
-    , implicit_dep :: PrimaryKey NodesT f
+    { source                   :: PrimaryKey NodesT f
+    , implicit_dep_target_type :: Columnar f T.Text
+    , implicit_dep_target_name :: Columnar f T.Text
+    , implicit_dep             :: PrimaryKey NodesT f
     } deriving (Generic, Beamable)
 
 instance Table ImplicitDepsT where
@@ -94,7 +96,9 @@ setupSchema conn = do
     execute_ conn [sql|
         create table if not exists implicit_deps(
             source__id INTEGER NOT NULL REFERENCES nodes(id),
-            implicit_dep__id INTEGER NOT NULL REFERENCES nodes(id)
+            implicit_dep__id INTEGER NOT NULL REFERENCES nodes(id),
+            implicit_dep_target_type VARCHAR NOT NULL,
+            implicit_dep_target_name VARCHAR NOT NULL
         )
     |]
 
@@ -103,7 +107,7 @@ setupSchema conn = do
     execute_ conn "create index if not exists node_persistent_index on nodes (persistent_id)"
 
     execute_ conn "create index if not exists impdep_sources on implicit_deps (source__id)"
-    execute_ conn "create unique index if not exists impdeps on implicit_deps (source__id, implicit_dep__id)"
+    execute_ conn "create unique index if not exists impdeps on implicit_deps (source__id, implicit_dep_target_type, implicit_dep_target_name, implicit_dep__id)"
 
     runBeamSqlite conn do
         result <- verifySchema migrationBackend nodeMetaDataChecked
@@ -182,15 +186,16 @@ updateNodeInfo conn prevNodeInfo exists value timestamp signature taskSignature 
                 ]
         return result
 
-insertImplicitDeps :: Connection -> [(Int32, [Int32])] -> IO ()
+insertImplicitDeps :: Connection -> [(Int32, [((T.Text, T.Text), Int32)])] -> IO ()
 insertImplicitDeps conn imps = do
-    let rows = concatMap (\(s, i) -> map (ImplicitDeps (NodeId s) . NodeId) i) imps
+    let rows_for_node (i, is) = map (\((tt, tn), s) -> ImplicitDeps (NodeId i) tt tn (NodeId s)) is
+    let rows = concatMap rows_for_node imps
 
     runBeamSqlite conn do
         runInsert do
             insertOnConflict nodeMetaData.implicit_deps (insertValues rows) anyConflict onConflictDoNothing
 
-selectImplicitDeps :: Connection -> Int32 -> IO [(T.Text, T.Text)]
+selectImplicitDeps :: Connection -> Int32 -> IO [((T.Text, T.Text), (T.Text, T.Text))]
 selectImplicitDeps conn nid = do
     runBeamSqlite conn do
         runSelectReturningList $
@@ -198,4 +203,4 @@ selectImplicitDeps conn nid = do
                 implicit <- filter_ (\n -> val_ (NodeId nid) ==. n.source) $ all_ nodeMetaData.implicit_deps
                 ni <- all_ nodeMetaData.nodes
                 guard_ (references_ implicit.implicit_dep ni)
-                return (ni.nodeType, ni.name)
+                return ((implicit.implicit_dep_target_type, implicit.implicit_dep_target_name), (ni.nodeType, ni.name))

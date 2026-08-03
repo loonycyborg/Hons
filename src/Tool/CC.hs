@@ -217,7 +217,7 @@ cscan @vars genFlags tgt src =
                 extract_dep (Rule _ deps _) = Just deps
                 extract_dep _               = Nothing
                 dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
-          return (EvalResult $ hash deps, deps <> gcms)
+          return (EvalResult $ hash deps, map (tgt,) deps)
     in
       depends tgt val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd)
 

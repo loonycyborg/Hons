@@ -170,18 +170,18 @@ updateDb context node prevNode newMetadata newTaskMetadata = do
         Just ni -> updateNodeInfo context.conn ni          (dbExists newMetadata) result (dbTimestamp newMetadata) (dbSignature newMetadata) task_signature status
     updateNodeInfoCache context node $ Just ni
 
-updateImplicitDeps :: DeciderContext -> [(Node, [Node])] -> IO()
+updateImplicitDeps :: DeciderContext -> [(Node, [(Node, Node)])] -> IO()
 updateImplicitDeps decider imps = do
     cache <- readIORef decider.dbCache
-    let ids = map (bimap lookup_item (map lookup_item)) imps
+    let ids = map (bimap lookup_item (map (bimap dbName lookup_item))) imps
         lookup_item = (.nodeId) . fromMaybe (error msg) . join . flip HM.lookup cache
         msg = "Failed to find node in database"
     insertImplicitDeps decider.conn ids
 
-reuseImplicitDeps :: DeciderContext -> Node -> IO [Node]
+reuseImplicitDeps :: DeciderContext -> Node -> IO [(Node, Node)]
 reuseImplicitDeps decider node = do
     Just ni <- getNodeInfoCached decider node
-    map fromDbName <$> selectImplicitDeps decider.conn ni.nodeId
+    map (join bimap fromDbName) <$> selectImplicitDeps decider.conn ni.nodeId
 
 hashSignature :: [B.ByteString] -> Maybe B.ByteString
 hashSignature []    = Nothing

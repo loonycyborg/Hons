@@ -33,7 +33,7 @@ data TaskmasterSettings = TaskmasterSettings {
 } deriving (Eq, Show)
 
 data TaskStatus vars where
-    Done    :: { target :: Node, env :: Environment vars, implicit :: [Node], changed :: Ruling } -> TaskStatus vars
+    Done    :: { target :: Node, env :: Environment vars, implicit :: [(Node, Node)], changed :: Ruling } -> TaskStatus vars
     Pending :: { target :: Node, async :: Maybe (Async (TaskStatus vars)) } -> TaskStatus vars
     Failed  :: { target :: Node } -> TaskStatus vars
     deriving Show
@@ -68,7 +68,7 @@ signTask :: Environment vars -> Task vars -> IO [ByteString]
 signTask env task =
     fst <$> runReaderT (runStateT task.sign env) task
 
-executeEvaluator :: Environment vars -> Task vars -> IO ((EvalResult, [Node]), Environment vars)
+executeEvaluator :: Environment vars -> Task vars -> IO ((EvalResult, [(Node, Node)]), Environment vars)
 executeEvaluator env task@(Evaluator target _ eval _) = let ?target = target in do
     catch
         do runReaderT (runStateT eval env) task
@@ -175,4 +175,4 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
         putStrLn "hons: *** build failed"
     return result
     where implicit_edges statuses = overlays $ implicit_node_edges <$> adjacencyList ruleset.graph where
-            implicit_node_edges (source, targets) = edges $ map (source,) $ targets >>= (maybe [] (.implicit) <$> (`HM.lookup` statuses))
+            implicit_node_edges (source, targets) = edges $ targets >>= (maybe [] (.implicit) <$> (`HM.lookup` statuses))

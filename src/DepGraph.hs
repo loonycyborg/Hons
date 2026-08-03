@@ -8,6 +8,7 @@ import qualified Data.Set as Set
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as L
 import Data.Semigroup (sconcat)
+import Data.Maybe (mapMaybe)
 
 type DepGraph = AdjacencyMap Node
 type TaskList vars = HM.HashMap Node (Task vars)
@@ -32,7 +33,7 @@ buildOrder ruleset goal = L.reverse $ L.map mkItem $ topologicalSort ruleset.gra
 
 data VertexSearchState a = Discovered | Finished a deriving (Show, Eq)
 
-depthFirstFold :: (a1 -> Node -> a1) -> (a1 -> [a2] -> [a2] -> [a1] -> (a2, [Node])) -> DepGraph -> Node -> a1 -> (a2, HM.HashMap Node a2)
+depthFirstFold :: (a1 -> Node -> a1) -> (a1 -> [a2] -> [a2] -> [a1] -> (a2, [(Node, Node)])) -> DepGraph -> Node -> a1 -> (a2, HM.HashMap Node a2)
 depthFirstFold discover_func finish_func graph vertex a1 =
     finalize_result $ go HM.empty vertex (discover_func a1 vertex) where
         go search vertex a1 = finish_vertex $ check_implicit_deps_recursively $ foldr check_edge (HM.insert vertex (Discovered, a1) search, [], [], [], []) (postSet vertex graph)
@@ -45,8 +46,11 @@ depthFirstFold discover_func finish_func graph vertex a1 =
             finish_vertex (search, tree_edges, front_cross_edges, back_edges, implicit) =
                 let a2 = finish_func a1 tree_edges front_cross_edges back_edges in
                 (a2, HM.adjust (\(Discovered, x) -> (Finished a2, x)) vertex search)
-            check_implicit_deps (s, t, f, b, implicit) = 
-                foldr check_edge (s, t, f, b, []) (filter (not <$> (`Set.member` postSet vertex graph)) implicit)
+            check_implicit_deps (s, t, f, b, implicit) =
+                foldr check_edge (s, t, f, b, []) (mapMaybe is_relevant_dep implicit)
+            is_relevant_dep (target, source)
+                | target == vertex && not (source `Set.member` postSet vertex graph) = Just source
+                | otherwise                                                          = Nothing
             check_implicit_deps_recursively =
                 until (\(_, _, _, _, implicit) -> null implicit) check_implicit_deps
         finalize_result ((goal_a2, _), search) = (goal_a2, HM.map (\(Finished (a2, _), _) -> a2) search)
