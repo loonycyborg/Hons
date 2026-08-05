@@ -18,7 +18,7 @@ import Data.Kind (Type)
 
 import Node ( Node(ValueNode, FsNode), NodeListNonEmpty, NodeList, toNonEmpty )
 import Environment
-import Action (Action, getenv, ActionM, gett, Task (Task, Evaluator))
+import Action (Action, getenv, Action, gett, Task (Task, Evaluator))
 import DepGraph (RuleSet)
 import Builder (command, Builder (..), ChainType(..), Tag (..))
 import Value
@@ -83,7 +83,7 @@ execute cmdline = do
     (result, output) <- liftIO $ spawnCmdPrint cmdline
     return if success result then Just output else Nothing
 
-inTaskContext :: ((?e::Environment vars, ?t::Task vars) => ActionM vars a) -> ActionM vars a
+inTaskContext :: ((?e::Environment vars, ?t::Task vars) => Action vars a) -> Action vars a
 inTaskContext action = do
     env <- getenv
     task <- gett
@@ -112,10 +112,10 @@ substS = sources where
         Task _ sources _ _      -> sources
         Evaluator _ sources _ _ -> sources
 
-osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars (Maybe CmdOutput)
+osExecute :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> Action vars (Maybe CmdOutput)
 osExecute cmdline = inTaskContext do execute cmdline
 
-osExecutePipeStdout :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> ActionM vars (Maybe OsString)
+osExecutePipeStdout :: ((?e::Environment vars, ?t::Task vars) => CmdLine) -> Action vars (Maybe OsString)
 osExecutePipeStdout cmdline = do
     output <- osExecute $ cmdline :| stdout
     return $ (HM.! stdout) <$> output

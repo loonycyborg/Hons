@@ -14,13 +14,13 @@ import Data.ByteString (ByteString)
 import Data.Hashable
 import Data.Binary (Binary)
 
-type ActionM vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
-type Action vars = (ActionM vars) Bool
-type ActionEval vars = (?target :: Node) => (ActionM vars) (EvalResult, [(Node, Node)])
-type ActionSig vars = (ActionM vars) [ByteString]
+type Action vars t = StateT (Environment vars) (ReaderT (Task vars) IO) t
+type ActionTask vars = Action vars Bool
+type ActionEval vars = (?target :: Node) => (Action vars) (EvalResult, [(Node, Node)])
+type ActionSig vars = (Action vars) [ByteString]
 
 data Task vars where
-    Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: Action vars, sign :: ActionSig vars } -> Task vars
+    Task :: { targets :: L.NonEmpty Node, sources :: [Node], action :: ActionTask vars, sign :: ActionSig vars } -> Task vars
     Evaluator :: { target :: Node, sources :: [Node], evaluator :: ActionEval vars, sign :: ActionSig vars} -> Task vars
 
 instance Show (Task vars) where
@@ -38,11 +38,11 @@ instance Hashable (Task vars) where
     hashWithSalt salt (Task targets _ _ _) = hashWithSalt salt targets
     hashWithSalt salt (Evaluator target _ _ _) = hashWithSalt salt [target]
 
-gett :: ActionM vars (Task vars)
+gett :: Action vars (Task vars)
 gett = lift ask
-getenv :: ActionM vars (Environment vars)
+getenv :: Action vars (Environment vars)
 getenv = get
-putenv :: Environment vars -> ActionM vars ()
+putenv :: Environment vars -> Action vars ()
 putenv = put
-modenv :: (Environment vars -> Environment vars) -> ActionM vars ()
+modenv :: (Environment vars -> Environment vars) -> Action vars ()
 modenv = modify
