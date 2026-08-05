@@ -1,5 +1,5 @@
 {-# LANGUAGE ImplicitParams #-}
-module Action (module Action, module Control.Monad.Trans.State.Strict, module Control.Monad.Trans.Reader, liftIO) where
+module Action (module Action, liftIO) where
 import Control.Monad.Trans.State.Strict
     ( get, modify, put, StateT, runStateT )
 import Control.Monad.Trans.Reader ( ask, ReaderT, runReaderT )
@@ -46,3 +46,5 @@ putenv :: Environment vars -> Action vars ()
 putenv = put
 modenv :: (Environment vars -> Environment vars) -> Action vars ()
 modenv = modify
+runAction :: Environment vars -> Task vars -> Action vars a -> IO (a, Environment vars)
+runAction env task action = runReaderT (runStateT action env) task

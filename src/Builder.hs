@@ -37,7 +37,7 @@ propagateIO name targets transform = RuleSet (HM.singleton node (Evaluator node 
     node = mkValue name
 
 propagate :: (NodeList a) => String -> a -> ((?target :: Node) => Environment vars -> Environment vars) -> RuleSet vars
-propagate name targets transform = propagateIO name targets do (getenv >>= put . transform) >> return (noResult, [])
+propagate name targets transform = propagateIO name targets do (getenv >>= putenv . transform) >> return (noResult, [])
 
 data BuilderF vars t where
     BuilderF   :: Tag -> ((?tags::TagRegistry) => NonEmpty Node -> RuleSet vars) -> NonEmpty Node -> NonEmpty t -> BuilderF vars t
@@ -56,7 +56,7 @@ instance MuRef (Builder vars ct) where
     type DeRef (Builder vars ct) = BuilderF vars
     mapDeRef f (Source tag nodes propagators)                  = SourceF tag (toNonEmpty nodes) <$> traverse f propagators
     mapDeRef f (Builder tag builder targetF sourceF tgts srcs) = BuilderF tag (builder tgts . sourceF) (targetF tgts) <$> traverse f srcs
-    mapDeRef _ (Propagate transform)                           = pure $ PropagateF (do (getenv >>= put . transform) >> return (noResult, [])) "propagator"
+    mapDeRef _ (Propagate transform)                           = pure $ PropagateF (do (getenv >>= putenv . transform) >> return (noResult, [])) "propagator"
     mapDeRef _ (PropagateIO evaluator name)                    = pure $ PropagateF evaluator name
 
 reifyBuilderChain :: (DeRef s ~ BuilderF vars, MuRef s) => s -> IO (RuleSet vars)

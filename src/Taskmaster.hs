@@ -62,16 +62,16 @@ classifyStatuses = foldr classifyStatus ([], [], []) where
 
 executeTask :: Typeable vars => Environment vars -> Task vars -> IO (Bool, Environment vars)
 executeTask env task@(Task targets sources action sign) = do
-    runReaderT (runStateT action env) task
+    runAction env task action
 
 signTask :: Environment vars -> Task vars -> IO [ByteString]
 signTask env task =
-    fst <$> runReaderT (runStateT task.sign env) task
+    fst <$> runAction env task task.sign
 
 executeEvaluator :: Environment vars -> Task vars -> IO ((EvalResult, [(Node, Node)]), Environment vars)
 executeEvaluator env task@(Evaluator target _ eval _) = let ?target = target in do
     catch
-        do runReaderT (runStateT eval env) task
+        do runAction env task eval
         do \(e :: SomeException) -> putStrLn ("hons: " <> show target <> " : evaluation threw exception: " <> displayException e) >> return ((ResultFailure, []), env)
 
 build :: Typeable vars => TaskmasterSettings -> RuleSet vars -> Environment vars -> Node -> IO (Bool, DepGraph)
