@@ -103,7 +103,10 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                 evaluateNode _      _   (_:_) = return $ Failed node
                 evaluateNode (_:_)  _      [] = return $ Pending node Nothing
                 evaluateNode []     done   [] = do
-                    let source_env = if null done then env else foldr1 eMerge $ map (.env) done
+                    let immanent_sources = HS.fromList . (.sources) <$> task
+                    let source_env = if null done then env else foldr1 eMerge $ map (.env) $ case immanent_sources of
+                            Nothing  -> done
+                            Just ims -> filter ((`HS.member` ims) . (.target)) done
                     let implicit_deps = map ((.target) &&& (.implicit)) $
                             filter (not . null . (.implicit)) $
                             filter ((/=Unchanged) . (.changed)) done
