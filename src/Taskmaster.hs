@@ -107,7 +107,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                     let source_env = if null done then env else foldr1 eMerge $ map (.env) $ case immanent_sources of
                             Nothing  -> done
                             Just ims -> filter ((`HS.member` ims) . (.target)) done
-                    let implicit_deps = map ((.target) &&& (.implicit)) $
+                    let implicit_deps = map ((.target) &&& (filter ((==node) . fst) . (.implicit))) $
                             filter (not . null . (.implicit)) $
                             filter ((/=Unchanged) . (.changed)) done
                     updateImplicitDeps decider implicit_deps

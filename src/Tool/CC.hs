@@ -15,10 +15,13 @@ import Data.Char
 import Data.Bool
 import Data.String (fromString)
 import Data.List (uncons, stripPrefix)
-import Data.Maybe (mapMaybe, isJust, fromJust)
+import Data.Maybe (mapMaybe, isJust, fromJust, maybeToList)
 import Data.Foldable
 import Control.Applicative ((<|>))
+import Control.Monad
+import Control.Arrow ((&&&))
 import System.OsPath ( (-<.>), osp, isExtensionOf, OsPath )
+import qualified System.FilePath
 import qualified Data.Text as T
 import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HM
@@ -128,7 +131,9 @@ instance Value Flag where
     toCmdLine (Std std) = [encodeVal $ "-std=" <> map toLower (show std)]
     toCmdLine (StdXX std) = [encodeVal $ "-std=c++" <> cxxStdYear std]
     toCmdLine CXXModules = [encodeVal "-fmodules"]
-    toCmdLine (CXXScan json) = [encodeVal "-fdeps-format=p1689r5"] <> ((encodeVal "-fdeps-file="<>) <$> toCmdLine json)
+    toCmdLine (CXXScan obj) = [encodeVal "-fdeps-format=p1689r5"]
+                           <> ((-<.> [osp|.json|]) . (encodeVal "-fdeps-file="<>) <$> toCmdLine obj)
+                           <> ((encodeVal "-fdeps-target="<>) <$> toCmdLine obj)
     toCmdLine (Output a) = encodeVal "-o" : toCmdLine a
     toCmdLine (CPPPath as) = concatMap cppflag as where
       cppflag x = case x of
@@ -176,41 +181,31 @@ parseFlags = fmap (fst . fst) . uncons . readP_to_S flagsP
 genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
 genCFlags = Cmd cccom :$ (Std <$> cstd) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
-genCXXFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-genCXXFlags = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ bool (Literal ()) CXXModules cxxmodules :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
+genCXXFlags :: IsProgramSource t => t -> (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
+genCXXFlags t = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ bool (Literal ()) CXXModules (modulesEnabled t) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
-compile :: UseEnv ToolVars vars => ((UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine) -> Node -> Node -> RuleSet vars
-compile genFlags tgt src = c tgt src <> cscan genFlags tgt src where
-  c = osCommand $ genFlags :$ Compile :$ Output substT :$ substS
-
-ccompile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
-ccompile = compile genCFlags
-
-cxxcompile :: UseEnv ToolVars vars => Node -> Node -> RuleSet vars
-cxxcompile = compile genCXXFlags
+compile :: (UseEnv ToolVars vars, IsProgramSource t) => t -> Node -> Node -> RuleSet vars
+compile t = osCommand $ genFlags t :$ Compile :$ Output substT :$ substS
 
 jsopts :: Options
 jsopts = defaultOptions  { fieldLabelModifier = camelTo2 '-' }
 
 data P1689r5Module = P1689r5Module { logicalName :: String, compiledModulePath :: Maybe String } deriving (Show, Generic)
 instance FromJSON P1689r5Module where parseJSON = genericParseJSON jsopts
-data P1689r5Rule = P1689r5Rule { provides :: Maybe [P1689r5Module], requires :: Maybe [P1689r5Module] } deriving (Show, Generic, FromJSON)
+data P1689r5Rule = P1689r5Rule { primaryOutput :: String, provides :: Maybe [P1689r5Module], requires :: Maybe [P1689r5Module] } deriving (Show, Generic)
+instance FromJSON P1689r5Rule where parseJSON = genericParseJSON jsopts
 newtype P1689r5DepsFile = P1689r5DepsFile { rules :: [P1689r5Rule] } deriving (Show, Generic, FromJSON)
 
-cscan :: UseEnv ToolVars vars => ((UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine) -> Node -> Node -> RuleSet vars
-cscan @vars genFlags tgt src =
+cscan :: (UseEnv ToolVars vars, IsProgramSource t) => t -> Node -> Node -> (Maybe Node, RuleSet vars)
+cscan t tgt src =
     let scan_name = nodePathString src <> ".cscan"
-        module_deps_name = nodePathString src <> ".json"
+        module_deps_name = bool Nothing (Just $ mkFsNodeFromString $ nodePathString src <> ".json") (modulesEnabled t)
         val = mkValue scan_name
         scan_cmd :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-        scan_cmd = genFlags :$ Preprocess :$ SysDeps :$ bool (Literal ()) (CXXScan module_deps_name) cxxmodules :$ src
+        scan_cmd = genFlags t :$ Preprocess :$ SysDeps :$ bool (Literal ()) (CXXScan tgt) (modulesEnabled t) :$ src
         do_scan = do
           scan_result <- osExecutePipeStdout scan_cmd
           env <- getenv
-          module_deps <- if eLookup CXXMODULES env then do
-              liftIO $ either error id <$> eitherDecodeFileStrict module_deps_name
-            else return $ P1689r5DepsFile []
-          let gcms = fmap (mkFsNodeFromString . ("gcm.cache/"<>) . (<>".gcm") . (.logicalName)) $ concat $ mapMaybe (.requires) module_deps.rules
           makefile_text <- T.pack <$> maybe (fail "Scanner command failed") decodeFilename scan_result
           makefile <- either fail return $ parseMakefileContents makefile_text
           let deps = map dep2node $ concat $ mapMaybe extract_dep makefile.entries where
@@ -219,7 +214,25 @@ cscan @vars genFlags tgt src =
                 dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
           return (EvalResult $ hash deps, map (tgt,) deps)
     in
-      depends tgt val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd)
+      (module_deps_name, depends tgt val <> depends module_deps_name val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd))
+
+cxxmodulescan :: Node -> [Node] -> RuleSet vars
+cxxmodulescan tgt srcs = evaluate tgt srcs do_scan (return []) where
+  do_scan = do
+    let jsons = map nodePathString srcs
+    deps :: [P1689r5DepsFile] <- map (either error id) <$> mapM (liftIO . eitherDecodeFileStrict) jsons
+    let module_map = HM.fromList $ concatMap (mapMaybe (module_entry . (((fmap ((.logicalName) . fst) . uncons) <=< (.provides)) &&& (.primaryOutput))) . ((.rules))) deps
+        module_entry (Just name, object) = Just (name, object)
+        module_entry _                   = Nothing
+        dependencies = concatMap (map ((.primaryOutput) &&& (maybe [] (fmap (.logicalName)) . ((.requires)))) . (.rules)) deps
+        imps = concatMap (\(tgt, imports) -> map ((tgt,) . lookup_module) imports) dependencies
+        lookup_module m = case HM.lookup m module_map of
+          Just f -> Right f
+          Nothing -> Left m
+        resolved_imps = map resolve_imp imps
+        resolve_imp (t, Right file) = (mkFsNodeFromString t, mkFsNodeFromString file)
+        resolve_imp (t, Left mod) = (mkFsNodeFromString t, mkValue $ "cxx-module-" <>mod)
+    return (noResult, resolved_imps)
 
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Linker -> Node -> s -> RuleSet vars
 link @vars linker = osCommand $ Cmd ld :$ Literal linkflags :$ LibPath libpath :$ Libs libs :$ Output substT :$ substS where
@@ -237,15 +250,21 @@ program = Builder TagNihil program_builder program_node source_builders where
     source_builder _               = error "Value nodes are not supported as program sources"
     program_builder :: UseEnv ToolVars vars => StrVar -> [(StrVar, Maybe SourceT)] -> RuleSet vars
     program_builder @vars (StrVar name) = link_objects . foldMap compile_object where
-      compile_object :: (StrVar, Maybe SourceT) -> ([Node], RuleSet vars, Linker)
-      compile_object (StrVar name, Just (SourceT t)) = ([tgt], objectCompiler t tgt src, objectLinker t) where [ tgt, src ] = map FsNode [ name -<.> [osp|.o|], name ]
-      compile_object (StrVar name, Nothing)          = ([FsNode name], emptyRuleSet, CLinker)
-      link_objects (objects, sg, linker) = sg <> link linker (FsNode name) objects
+      compile_object :: (StrVar, Maybe SourceT) -> ([Node], RuleSet vars, [Node], Linker)
+      compile_object (StrVar name, Just (SourceT t)) = ([tgt], objectCompiler t tgt src <> scan, maybeToList json, objectLinker t) where
+            [ tgt, src ] = map FsNode [ name -<.> [osp|.o|], name ]
+            (json, scan) = objectScanner t tgt src
+      compile_object (StrVar name, Nothing)          = ([FsNode name], emptyRuleSet, [], CLinker)
+      link_objects (objects, sg, jsons, linker) = sg <> cxxmodulescan (mkValue "cxx-module-mapper") jsons <> depends objects (mkValue "cxx-module-mapper") <> link linker (FsNode name) objects
 
 class IsProgramSource a where
   extensions :: a -> [OsPath]
   extensions a = []
+  modulesEnabled :: a -> Bool
+  modulesEnabled a = False
+  genFlags       :: a -> (forall vars . (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine)
   objectCompiler :: a -> (UseEnv ToolVars vars => Node -> Node -> RuleSet vars)
+  objectScanner  :: a -> (UseEnv ToolVars vars => Node -> Node -> (Maybe Node, RuleSet vars))
   objectLinker   :: a -> Linker
 
 data SourceT = forall a . (IsProgramSource a, Show a) => SourceT { filetype :: a }
@@ -254,13 +273,19 @@ deriving instance Show SourceT
 data C = C deriving Show
 instance IsProgramSource C where
   extensions _ = [[osp|.c|]]
-  objectCompiler _ = ccompile
+  genFlags t = genCFlags
+  objectCompiler t = compile t
+  objectScanner t  = cscan t
   objectLinker _ = CLinker
 
-data CXX = CXX deriving Show
+data CXX = CXX | CXXWithModules deriving Show
 instance IsProgramSource CXX where
   extensions _ = [[osp|.cpp|], [osp|.cc|], [osp|.cxx|], [osp|.C|]]
-  objectCompiler _ = cxxcompile
+  modulesEnabled CXX            = False
+  modulesEnabled CXXWithModules = True
+  genFlags t = genCXXFlags t
+  objectCompiler t = compile t
+  objectScanner t  = cscan t
   objectLinker _ = CXXLinker
 
 autoTag :: OsPath -> Maybe SourceT
