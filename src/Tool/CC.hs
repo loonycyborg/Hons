@@ -15,7 +15,7 @@ import Data.Char
 import Data.Bool
 import Data.String (fromString)
 import Data.List (uncons, stripPrefix)
-import Data.Maybe (mapMaybe, isJust, fromJust, maybeToList)
+import Data.Maybe (mapMaybe, isJust, fromJust, maybeToList, fromMaybe)
 import Data.Foldable
 import Control.Applicative ((<|>))
 import Control.Monad
@@ -230,7 +230,7 @@ cscan t tgt src =
                 dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
           return (EvalResult $ hash deps, map (tgt,) deps)
     in
-      (module_deps_name, depends tgt val <> depends module_deps_name val <> evaluate val src do_scan (inTaskContext $ return $ toSignature scan_cmd))
+      (module_deps_name, depends tgt val <> depends val module_deps_name <> evaluate (fromMaybe val module_deps_name) src do_scan (inTaskContext $ return $ toSignature scan_cmd))
 
 cxxmodulescan :: Node -> [Node] -> RuleSet vars
 cxxmodulescan tgt srcs = evaluate tgt srcs do_scan (return []) where
