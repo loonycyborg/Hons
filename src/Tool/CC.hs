@@ -44,7 +44,6 @@ toolEnv =
   envVar @("cc" :. "cflags")    ([] :: TSList StrVar)     :+:
   envVar @("cc" :. "cstd")      (Nothing :: Maybe CStd)   :+:
   envVar @("cc" :. "cxxstd")    (Nothing :: Maybe CXXStd) :+:
-  envVar @("cc" :. "cxxmodules") (False :: Bool)          :+:
   envVar @("cc" :. "cpppath")   ([] :: TSList IncludeDir) :+:
   envVar @("cc" :. "cppdefines") ([] :: TSList CPPDefine) :+:
   envVar @("cc" :. "linkcom")   (CLinker :: Linker)       :+:
