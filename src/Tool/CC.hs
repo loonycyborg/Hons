@@ -30,9 +30,11 @@ import Data.Hashable (hash)
 import Data.Aeson (FromJSON (..), genericParseJSON, Options (..), defaultOptions, camelTo2, eitherDecodeFileStrict)
 import GHC.Exts (IsString)
 import GHC.Generics (Generic)
+import Language.Haskell.TH.Syntax (Lift)
+import Language.Haskell.TH.Quote (QuasiQuoter)
 
 import ToolTH
-import Builder (propagateIO, Builder (PropagateIO, Builder), ChainType(BuilderC,PropagatorC), depends, evaluate, emptyRuleSet, propagate, Tag (..), tag, TagRegistry)
+import Builder (propagateIO, Builder (PropagateIO, Builder), ChainType(BuilderC,PropagatorC), depends, evaluate, emptyRuleSet, propagate, Tag (..), tag, TagRegistry, sourcelistT)
 import Action ( EvalResult(EvalResult, ResultFailure), modenv, ActionEval, Task, noResult, ActionSig, getenv, liftIO )
 
 
@@ -267,10 +269,11 @@ class IsProgramSource a where
   objectScanner  :: a -> (UseEnv ToolVars vars => Node -> Node -> (Maybe Node, RuleSet vars))
   objectLinker   :: a -> Linker
 
-data SourceT = forall a . (IsProgramSource a, Show a) => SourceT { filetype :: a }
+data SourceT = forall a . (IsProgramSource a, Show a, Lift a) => SourceT { filetype :: a }
 deriving instance Show SourceT
+deriving instance Lift SourceT
 
-data C = C deriving Show
+data C = C deriving (Show, Lift)
 instance IsProgramSource C where
   extensions _ = [[osp|.c|]]
   genFlags t = genCFlags
@@ -278,7 +281,7 @@ instance IsProgramSource C where
   objectScanner t  = cscan t
   objectLinker _ = CLinker
 
-data CXX = CXX | CXXWithModules deriving Show
+data CXX = CXX | CXXWithModules deriving (Show, Lift)
 instance IsProgramSource CXX where
   extensions _ = [[osp|.cpp|], [osp|.cc|], [osp|.cxx|], [osp|.C|]]
   modulesEnabled CXX            = False
@@ -291,6 +294,9 @@ instance IsProgramSource CXX where
 autoTag :: OsPath -> Maybe SourceT
 autoTag path = find @NonEmpty matches [SourceT C, SourceT CXX] where
   matches (SourceT filetype) = isJust $ find (`isExtensionOf` path) (extensions filetype)
+
+sourcelistMod :: QuasiQuoter
+sourcelistMod = sourcelistT $ SourceT CXXWithModules :# TagNihil
 
 pkgConfig :: (UseEnv ToolVars vars) => String -> ActionEval vars
 pkgConfig p = do

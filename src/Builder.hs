@@ -16,6 +16,7 @@ import Environment
 import Type.Reflection (Typeable)
 import Data.ByteString (ByteString)
 import Language.Haskell.TH.Quote
+import Language.Haskell.TH.Syntax (Lift)
 
 depends :: (NodeList a, NodeList b) => a -> b -> RuleSet vars
 depends target source = RuleSet HM.empty (connect (vertices $ toList target) (vertices $ toList source))
@@ -87,7 +88,8 @@ reifyToRuleset x = gs where
 
 data Tag where
     TagNihil :: Tag
-    (:#)     :: Typeable a => a -> Tag -> Tag
+    (:#)     :: (Typeable a, Lift a) => a -> Tag -> Tag
+deriving instance Lift Tag
 infixr 5 :#
 
 type TagRegistry = HM.HashMap Node TM.TMap
@@ -114,15 +116,18 @@ ioBuilder action sigaction = Builder TagNihil (command actionM sigactionM) toNon
         let ?t = task
         liftIO sigaction
 
-sourcelist :: QuasiQuoter
-sourcelist = QuasiQuoter
+sourcelistT :: Tag -> QuasiQuoter
+sourcelistT t = QuasiQuoter
     { quoteExp  = \s -> case words s of
-        n1 : ns -> [| Source TagNihil nodes |] where nodes = fmap mkFsNodeFromString $ n1 :| ns
+        n1 : ns -> [| Source t nodes |] where nodes = fmap mkFsNodeFromString $ n1 :| ns
         _       -> error "empty sourcelist"
     , quotePat  = error "sourcelist quasiquoter doesn't support use as pattern"
     , quoteType = error "sourcelist quasiquoter doesn't support use as type"
     , quoteDec  = error "sourcelist quasiquoter doesn't support use as declaration"
     }
+
+sourcelist :: QuasiQuoter
+sourcelist = sourcelistT TagNihil
 
 aliasValue :: String -> [Builder vars PropagatorC] -> Builder vars BuilderC
 aliasValue name = Source TagNihil (mkValue name)
