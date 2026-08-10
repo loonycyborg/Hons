@@ -140,6 +140,9 @@ baseDir :: OsPath
 baseDir = unsafePerformIO . canonicalizePath . unsafeEncodeUtf $ "."
 mkFsNode :: OsPath -> Node
 mkFsNode = FsNode . makeRelative baseDir . unsafePerformIO . canonicalizePath
+isFs :: Node -> Bool
+isFs (FsNode {}) = True
+isFs _           = False
 mkFsNodeFromString :: FilePath -> Node
 mkFsNodeFromString = mkFsNode . force . unsafePerformIO . encodeFilename
 mkValue :: String -> Node
