@@ -20,7 +20,7 @@ import Data.Foldable
 import Control.Applicative ((<|>))
 import Control.Monad
 import Control.Arrow ((&&&))
-import System.OsPath ( (-<.>), osp, isExtensionOf, OsPath )
+import System.OsPath ( (-<.>), osp, isExtensionOf, OsPath, takeDirectory )
 import qualified System.FilePath
 import qualified Data.Text as T
 import qualified Data.List.NonEmpty as NE
@@ -188,7 +188,7 @@ genCXXFlags :: IsProgramSource t => t -> (UseEnv ToolVars vars, ?t::Task vars, ?
 genCXXFlags t = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ bool (Literal ()) CXXModules (modulesEnabled t) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 compile :: (UseEnv ToolVars vars, IsProgramSource t) => t -> Node -> Node -> RuleSet vars
-compile t = osCommand $ genFlags t :$ Compile :$ bool (Literal ()) (Output substT) (isFs substTarget) :$ map expandSrcNode substS
+compile t = osCommand $ genFlags t :$ Compile :$ bool (Literal ()) (Output substT) ([osp|gcm.cache|] /= takeDirectory (nodePath substTarget)) :$ map expandSrcNode substS
 
 expandSrcNode :: Node -> Flag
 expandSrcNode n@(FsNode {}) = Literal n
@@ -229,7 +229,7 @@ cscan t tgt src =
                 dep2node (Dependency d) = mkFsNodeFromString $ T.unpack d
           return (EvalResult $ hash deps, map (tgt,) deps)
     in
-      (module_deps_name, depends tgt val <> depends val module_deps_name <> evaluate (fromMaybe val module_deps_name) src do_scan (inTaskContext $ return $ toSignature scan_cmd))
+      (module_deps_name, depends tgt val <> depends tgt module_deps_name <> evaluate (fromMaybe val module_deps_name) src do_scan (inTaskContext $ return $ toSignature scan_cmd))
 
 cxxmodulescan :: Node -> [Node] -> RuleSet vars
 cxxmodulescan tgt srcs = evaluate tgt srcs do_scan (return []) where
@@ -246,7 +246,7 @@ cxxmodulescan tgt srcs = evaluate tgt srcs do_scan (return []) where
           Nothing -> Left m
         resolved_imps = map resolve_imp imps
         resolve_imp (t, Right file) = (mkFsNodeFromString t, mkFsNodeFromString file)
-        resolve_imp (t, Left mod) = (mkFsNodeFromString t, mkValue $ "cxx-module-" <>mod)
+        resolve_imp (t, Left mod) = (mkFsNodeFromString t, mkFsNodeFromString $ "gcm.cache/" <> mod <> ".gcm")
     return (noResult, resolved_imps)
 
 link :: (UseEnv ToolVars vars, Value s, NodeList s) => Linker -> Node -> s -> RuleSet vars
@@ -274,7 +274,7 @@ program = Builder TagNihil program_builder program_node source_builders where
         objectCompiler CXXWithModules mod mod_src <>
         snd (objectScanner CXXWithModules mod mod_src) <>
         depends mod_src (FsNode . (.unStrVar) . fst . fst <$> uncons sources) where
-          mod = mkValue $ "cxx-module-" <> name
+          mod = mkFsNodeFromString $ "gcm.cache/" <> name <> ".gcm"
           mod_src = mkValue $ "cxx-module-src-" <> name
       link_objects (objects, sg, jsons, linker) =
         sg <>
