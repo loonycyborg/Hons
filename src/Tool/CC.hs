@@ -15,7 +15,7 @@ import Data.Char
 import Data.Bool
 import Data.String (fromString)
 import Data.List (uncons, stripPrefix)
-import Data.Maybe (mapMaybe, isJust, fromJust, maybeToList, fromMaybe)
+import Data.Maybe (mapMaybe, isJust, fromJust, maybeToList, fromMaybe, isNothing)
 import Data.Foldable
 import Control.Applicative ((<|>))
 import Control.Monad
@@ -185,10 +185,10 @@ genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdL
 genCFlags = Cmd cccom :$ (Std <$> cstd) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 genCXXFlags :: IsProgramSource t => t -> (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-genCXXFlags t = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ bool (Literal ()) CXXModules (modulesEnabled t) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
+genCXXFlags t = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ bool (Literal ()) CXXModules (isJust $ modulesEnabled t) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 compile :: (UseEnv ToolVars vars, IsProgramSource t) => t -> Node -> Node -> RuleSet vars
-compile t = osCommand $ genFlags t :$ Compile :$ bool (Literal ()) (Output substT) ([osp|gcm.cache|] /= takeDirectory (nodePath substTarget)) :$ map expandSrcNode substS
+compile t = osCommand $ genFlags t :$ Compile :$ bool (Literal ()) (Output substT) (isNothing (modulesEnabled t) || (modulesEnabled t == Just ModSource)) :$ map expandSrcNode substS
 
 expandSrcNode :: Node -> Flag
 expandSrcNode n@(FsNode {}) = Literal n
@@ -212,11 +212,11 @@ cscan t tgt src =
     let src_name = case src of
           FsNode {} -> nodePathString src
           ValueNode n _ -> n
-        module_deps_name = bool Nothing (Just $ mkFsNodeFromString $ src_name <> ".json") (modulesEnabled t)
+        module_deps_name = bool Nothing (Just $ mkFsNodeFromString $ src_name <> ".json") (isJust $ modulesEnabled t)
         val = mkValue $ src_name <> ".cscan"
         scan_cmd :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
         scan_cmd = genFlags t :$ Preprocess :$ SysDeps :$
-          bool (Literal ()) (CXXScan module_deps_name tgt) (modulesEnabled t) :$
+          bool (Literal ()) (CXXScan module_deps_name tgt) (isJust $ modulesEnabled t) :$
           expandSrcNode src
         do_scan = do
           scan_result <- osExecutePipeStdout scan_cmd
@@ -271,8 +271,8 @@ program = Builder TagNihil program_builder program_node source_builders where
             (json, scan) = objectScanner t tgt src
       compile_object (StrVar name, Nothing)          = ([FsNode name], emptyRuleSet, [], CLinker)
       cxx_std_module name =
-        objectCompiler CXXWithModules mod mod_src <>
-        snd (objectScanner CXXWithModules mod mod_src) <>
+        objectCompiler CXXModuleHeader mod mod_src <>
+        snd (objectScanner CXXModuleHeader mod mod_src) <>
         depends mod_src (FsNode . (.unStrVar) . fst . fst <$> uncons sources) where
           mod = mkFsNodeFromString $ "gcm.cache/" <> name <> ".gcm"
           mod_src = mkValue $ "cxx-module-src-" <> name
@@ -286,11 +286,13 @@ program = Builder TagNihil program_builder program_node source_builders where
         else emptyRuleSet) <>
         link linker (FsNode name) objects
 
+data ModuleBuildMode = ModSource | ModHeader deriving (Eq, Show)
+
 class IsProgramSource a where
   extensions :: a -> [OsPath]
   extensions a = []
-  modulesEnabled :: a -> Bool
-  modulesEnabled a = False
+  modulesEnabled :: a -> Maybe ModuleBuildMode
+  modulesEnabled a = Nothing
   genFlags       :: a -> (forall vars . (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine)
   objectCompiler :: a -> (UseEnv ToolVars vars => Node -> Node -> RuleSet vars)
   objectScanner  :: a -> (UseEnv ToolVars vars => Node -> Node -> (Maybe Node, RuleSet vars))
@@ -308,11 +310,12 @@ instance IsProgramSource C where
   objectScanner t  = cscan t
   objectLinker _ = CLinker
 
-data CXX = CXX | CXXWithModules deriving (Show, Lift)
+data CXX = CXX | CXXModuleSrc | CXXModuleHeader deriving (Show, Lift)
 instance IsProgramSource CXX where
   extensions _ = [[osp|.cpp|], [osp|.cc|], [osp|.cxx|], [osp|.C|]]
-  modulesEnabled CXX            = False
-  modulesEnabled CXXWithModules = True
+  modulesEnabled CXX             = Nothing
+  modulesEnabled CXXModuleSrc    = Just ModSource
+  modulesEnabled CXXModuleHeader = Just ModHeader
   genFlags t = genCXXFlags t
   objectCompiler t = compile t
   objectScanner t  = cscan t
@@ -323,7 +326,7 @@ autoTag path = find @NonEmpty matches [SourceT C, SourceT CXX] where
   matches (SourceT filetype) = isJust $ find (`isExtensionOf` path) (extensions filetype)
 
 sourcelistMod :: QuasiQuoter
-sourcelistMod = sourcelistT $ SourceT CXXWithModules :# TagNihil
+sourcelistMod = sourcelistT $ SourceT CXXModuleSrc :# TagNihil
 
 pkgConfig :: (UseEnv ToolVars vars) => String -> ActionEval vars
 pkgConfig p = do
