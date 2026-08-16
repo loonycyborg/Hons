@@ -175,6 +175,9 @@ flagP = choice [
     escape = choice [escape_quote, escape_backslash]
     read_literal = read . map toUpper . toString
 
+flagIf :: Flag -> Bool -> Flag
+flagIf = bool (Literal ())
+
 flagsP :: ReadP [Flag]
 flagsP = skipSpaces *> sepBy flagP (munch1 isSpace) <* skipSpaces <* eof
 
@@ -185,10 +188,10 @@ genCFlags :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdL
 genCFlags = Cmd cccom :$ (Std <$> cstd) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 genCXXFlags :: IsProgramSource t => t -> (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
-genCXXFlags t = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ bool (Literal ()) CXXModules (isJust $ modulesEnabled t) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
+genCXXFlags t = Cmd cxxcom :$ (StdXX <$> cxxstd) :$ flagIf CXXModules (isJust $ modulesEnabled t) :$ Literal cflags :$ CPPPath cpppath :$ CPPDefines cppdefines
 
 compile :: (UseEnv ToolVars vars, IsProgramSource t) => t -> Node -> Node -> RuleSet vars
-compile t = osCommand $ genFlags t :$ Compile :$ bool (Literal ()) (Output substT) (isNothing (modulesEnabled t) || (modulesEnabled t == Just ModSource)) :$ map expandSrcNode substS
+compile t = osCommand $ genFlags t :$ Compile :$ flagIf (Output substT) (isNothing (modulesEnabled t) || (modulesEnabled t == Just ModSource)) :$ map expandSrcNode substS
 
 expandSrcNode :: Node -> Flag
 expandSrcNode n@(FsNode {}) = Literal n
@@ -216,7 +219,7 @@ cscan t tgt src =
         val = mkValue $ src_name <> ".cscan"
         scan_cmd :: (UseEnv ToolVars vars, ?t::Task vars, ?e::Environment vars) => CmdLine
         scan_cmd = genFlags t :$ Preprocess :$ SysDeps :$
-          bool (Literal ()) (CXXScan module_deps_name tgt) (isJust $ modulesEnabled t) :$
+          flagIf (CXXScan module_deps_name tgt) (isJust $ modulesEnabled t) :$
           expandSrcNode src
         do_scan = do
           scan_result <- osExecutePipeStdout scan_cmd
