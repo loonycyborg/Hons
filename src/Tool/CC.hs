@@ -1,5 +1,5 @@
 {-# LANGUAGE BlockArguments, DataKinds, TemplateHaskell, ImplicitParams, OverloadedStrings, OverloadedLists, LambdaCase, QuasiQuotes, TypeAbstractions,
-  DeriveAnyClass, NoGeneralizedNewtypeDeriving #-}
+  DerivingVia #-}
 {-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 module Tool.CC where
 
@@ -28,6 +28,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.List.NonEmpty (NonEmpty)
 import Data.Hashable (hash)
 import Data.Aeson (FromJSON (..), genericParseJSON, Options (..), defaultOptions, camelTo2, eitherDecodeFileStrict)
+import Deriving.Aeson ( Generic, FromJSON, CamelToKebab, CustomJSON(CustomJSON), FieldLabelModifier )
 import GHC.Exts (IsString)
 import GHC.Generics (Generic)
 import Language.Haskell.TH.Syntax (Lift)
@@ -201,14 +202,11 @@ expandSrcNode (ValueNode n _) = HeaderSrc $ parse_header_module n where
     Just "std.compat" -> "bits/std.compat.cc"
     _ -> error $ "Unknown c++ module specification: " <> n
 
-jsopts :: Options
-jsopts = defaultOptions  { fieldLabelModifier = camelTo2 '-' }
+type DepsJSONOpts = CustomJSON '[ FieldLabelModifier '[ CamelToKebab ] ]
 
-data P1689r5Module = P1689r5Module { logicalName :: String, compiledModulePath :: Maybe String } deriving (Show, Generic)
-instance FromJSON P1689r5Module where parseJSON = genericParseJSON jsopts
-data P1689r5Rule = P1689r5Rule { primaryOutput :: String, provides :: Maybe [P1689r5Module], requires :: Maybe [P1689r5Module] } deriving (Show, Generic)
-instance FromJSON P1689r5Rule where parseJSON = genericParseJSON jsopts
-newtype P1689r5DepsFile = P1689r5DepsFile { rules :: [P1689r5Rule] } deriving (Show, Generic, FromJSON)
+data P1689r5Module = P1689r5Module { logicalName :: String, compiledModulePath :: Maybe String } deriving (Show, Generic) deriving FromJSON via (DepsJSONOpts P1689r5Module)
+data P1689r5Rule = P1689r5Rule { primaryOutput :: String, provides :: Maybe [P1689r5Module], requires :: Maybe [P1689r5Module] } deriving (Show, Generic) deriving FromJSON via (DepsJSONOpts P1689r5Rule)
+newtype P1689r5DepsFile = P1689r5DepsFile { rules :: [P1689r5Rule] } deriving (Show, Generic) deriving FromJSON via (DepsJSONOpts P1689r5DepsFile)
 
 cscan :: (UseEnv ToolVars vars, IsProgramSource t) => t -> Node -> Node -> (Maybe Node, RuleSet vars)
 cscan t tgt src =

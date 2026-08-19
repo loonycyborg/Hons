@@ -33,6 +33,7 @@ library
 
   build-depends:
     aeson,
+    deriving-aeson,
     algebraic-graphs >=0.7,
     async,
     base,
