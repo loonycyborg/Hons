@@ -10,6 +10,7 @@ import qualified Data.List.NonEmpty as NE
 import Algebra.Graph.ToGraph (ToGraph(toAdjacencyMap))
 import Data.Bool
 import Data.Either
+import Control.Exception
 
 import DepGraph
 import Node
@@ -32,5 +33,5 @@ spec = do
                 in
                     counterexample ("Topological sort: " <> if isLeft alga_sort then "<cycle>" else show dffold_sort) $
                     case alga_sort of
-                        Left _ -> True
-                        _      -> AMA.isTopSortOf dffold_sort subgraph
+                        Left _ -> evaluate (last dffold_sort) `shouldThrow` anyErrorCall
+                        _      -> AMA.isTopSortOf dffold_sort subgraph `shouldBe` True
