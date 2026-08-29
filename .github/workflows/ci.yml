@@ -14,6 +14,21 @@ jobs:
         uses: haskell-actions/setup@v2
         with:
           ghc-version: ${{ matrix.ghc }}
-      - run: |
+      - name: Generate Freeze File
+        run: cabal freeze
+      - name: Cache Cabal Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-cabal-${{ hashFiles('cabal.project.freeze') }}
+          restore-keys: |
+            ${{ runner.os }}-cabal-
+
+      - name: Cabal Dependencies
+        run: cabal build --only-dependencies
+      - name: Build and Test
+        run: |
           cabal run hons
           cabal test
