@@ -102,5 +102,8 @@ test-suite hons-test
   default-language: GHC2021
   type: exitcode-stdio-1.0
   hs-source-dirs: test
-  main-is: MyLibTest.hs
-  build-depends: base
+  main-is: Spec.hs
+  other-modules: EnvironmentSpec
+  build-depends: base, hons, sydtest
+  build-tool-depends:  sydtest-discover:sydtest-discover
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
