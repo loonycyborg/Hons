@@ -15,5 +15,5 @@ jobs:
         with:
           ghc-version: ${{ matrix.ghc }}
       - run: |
-        cabal run hons
-        cabal test
+          cabal run hons
+          cabal test
