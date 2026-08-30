@@ -27,7 +27,7 @@ jobs:
             ${{ runner.os }}-cabal-
 
       - name: Cabal Dependencies
-        run: cabal build --only-dependencies
+        run: cabal build --only-dependencies --enable-tests
       - name: Build and Test
         run: |
           cabal run hons
