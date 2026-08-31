@@ -121,6 +121,7 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                 (Unchanged, False) -> do
                                     implicit <- reuseImplicitDeps decider node
                                     returnUpToDate source_env implicit
+                                _ | null t.sources -> buildNodeTask t source_env signature
                                 _                  -> Pending node . Just <$> async do
                                     new_var <- newEmptyMVar
                                     cached_var <- atomicModifyIORef' task_cache \cache ->
@@ -129,36 +130,41 @@ build settings ruleset env goal = withDeciderContext "honsign.sqlite" \decider -
                                             Nothing -> (HM.insert t new_var cache, new_var)
                                     var <- if new_var == cached_var then do
                                         status <- parallel_limiter do
-                                            case t of
-                                                Task {}      -> do
-                                                    (result, result_env) <- executeTask source_env t
-                                                    changed <- wasRebuilt decider node result Nothing signature
-                                                    if result then
-                                                        return $ Done node result_env [] changed
-                                                    else
-                                                        returnFail
-                                                Evaluator {} -> do
-                                                    ((result, implicit), result_env) <- executeEvaluator source_env t
-                                                    let (is_success, value) = case result of
-                                                            ResultFailure -> (False, Nothing)
-                                                            EvalResult a -> (True, Just $ toStrict $ encode a)
-                                                    changed <- wasRebuilt decider node is_success value signature
-                                                    case result of
-                                                        ResultFailure -> returnFail
-                                                        _             -> return $ Done node result_env implicit changed
-                                        when (taskFailed status) do
-                                            putStrLn $ "hons: *** " ++ show t ++ ": task failed"
-                                            unless settings.keepGoing do
-                                                throwIO TaskFailed
+                                            buildNodeTask t source_env signature
                                         putMVar new_var status
                                         return new_var
                                     else
                                         return cached_var
                                     readMVar var
+                buildNodeTask t source_env signature = do
+                    handleTaskFailure =<< case t of
+                        Task {}      -> do
+                            (result, result_env) <- executeTask source_env t
+                            changed <- wasRebuilt decider node result Nothing signature
+                            if result then
+                                return $ Done node result_env [] changed
+                            else
+                                returnFail
+                        Evaluator {} -> do
+                            ((result, implicit), result_env) <- executeEvaluator source_env t
+                            let (is_success, value) = case result of
+                                    ResultFailure -> (False, Nothing)
+                                    EvalResult a -> (True, Just $ toStrict $ encode a)
+                            changed <- wasRebuilt decider node is_success value signature
+                            case result of
+                                ResultFailure -> returnFail
+                                _             -> return $ Done node result_env implicit changed
+
                 returnFail = return $ Failed node
                 returnUpToDate env implicit = do
                     changed <- decideNode decider node Nothing
                     return $ Done node env implicit changed
+                handleTaskFailure status = do
+                    when (taskFailed status) do
+                        putStrLn $ "hons: *** " ++ show status.target ++ ": task failed"
+                        unless settings.keepGoing do
+                            throwIO TaskFailed
+                    return status
         parallel_limiter =
             case parallel_limit of
                 Just sem -> bracket_ (waitQSem sem) (signalQSem sem)
